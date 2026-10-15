@@ -1,0 +1,10 @@
+from python
+
+workdir ./app
+
+run ["pip", "install", "fastapi", "uvicorn"]
+
+copy app .
+expose 3030
+
+cmd ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3030"]

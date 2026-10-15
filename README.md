@@ -1,6 +1,6 @@
 # microtube
 A YouTube clone without the bloatware | student project
 
+**This a a student pet project.** We are aiming to create a scalable cluster with a minimalistic video player.
 
-hello worls from tech_lead
-"hello from scrum-master" 
+---

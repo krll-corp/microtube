@@ -1,0 +1,6 @@
+from nginx:alpine
+
+copy ./app /usr/share/nginx/html
+
+expose 80
+cmd ["nginx", "-g", "daemon off;"]
