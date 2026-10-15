@@ -1,0 +1,11 @@
+from python:3.13
+
+run ["pip", "install", "torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cpu"]
+run ["pip", "install", "-U", "transformers", "accelerate", "fastapi", "uvicorn", "pillow"]
+
+workdir ./app
+
+copy app .
+expose 4001
+
+cmd ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "4001"]
