@@ -1,28 +1,42 @@
-from fastapi import FastAPI
+import os
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Query
 import torch
 import torch.nn.functional as F
 from transformers import AutoModel, AutoProcessor
+from transformers.video_utils import load_video
 
-processor = AutoProcessor.from_pretrained("google/embeddinggemma-2")
-model = AutoModel.from_pretrained("google/embeddinggemma-2", device_map="auto").eval() #TODO: GPUs
+MODEL_ID = "google/embeddinggemma-2"
+VIDEO_STORAGE_DIR = Path(os.getenv("VIDEO_STORAGE_DIR", "/videos"))
+
+processor = AutoProcessor.from_pretrained(MODEL_ID)
+model = AutoModel.from_pretrained(MODEL_ID, device_map="auto", dtype=torch.float32).eval() #TODO: GPUs
 
 app = FastAPI()
 
 @app.get("/embedding/video")
-def run(hash: str):
-    #pretend we go to the db to get the video
-    #TODO: figure out how to make embeddinggemma eat long videos. from docs: Video 140 tokens per frame (default) ~58 frames. it handles text 8,192 tokens
+def run(hash: str = Query(pattern=r"^[0-9a-f]{64}$")):
+    video = VIDEO_STORAGE_DIR / hash
+    if not video.is_file():
+        raise HTTPException(status_code=404, detail="Video not found")
 
-    
-    video = torch.zeros((4, 3, 224, 224), dtype=torch.uint8)
-    video[1] = 85
-    video[2] = 170
-    video[3] = 255
-    
+    frames, metadata = load_video(
+        str(video),
+        backend="pyav",
+        sample_indices_fn=lambda metadata, **kwargs: processor.video_processor.sample_frames(
+            metadata, fps=1, max_frames=32, overflow_strategy="uniform"
+        ),
+    )
     with torch.inference_mode():
-        inputs = processor(videos=[video], return_tensors="pt", do_sample_frames=False).to(model.device)
+        inputs = processor(
+            videos=[frames],
+            video_metadata=[metadata],
+            return_tensors="pt",
+            do_sample_frames=False,
+        ).to(model.device)
         hidden = model(**inputs).last_hidden_state.float()
         mask = inputs["attention_mask"].unsqueeze(-1)
         embedding = (hidden * mask).sum(dim=1) / mask.sum(dim=1)
         embedding = F.normalize(embedding, dim=-1)
-        return embedding # torch.Size([1, 768])
+        return embedding[0].cpu().tolist()

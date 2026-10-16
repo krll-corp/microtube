@@ -1,6 +1,9 @@
 from python:3.13
 
-workdir ./app
+workdir /app
+
+env VIDEO_STORAGE_DIR=/videos
+volume ["/videos"]
 
 run ["pip", "install", "fastapi", "uvicorn"]
 

@@ -5,5 +5,4 @@ env POSTGRES_DB=videos
 env POSTGRES_USER=admin
 env POSTGRES_PASSWORD=pass
 
-#TODO: init.sql schema
-copy init.sql /docker-entrypoint-initdb.d/
+copy init.sql /docker-entrypoint-initdb.d/init.sql
