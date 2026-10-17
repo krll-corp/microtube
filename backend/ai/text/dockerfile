@@ -3,7 +3,7 @@ from python:3.13
 run ["pip", "install", "torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cpu"]
 run ["pip", "install", "-U", "transformers", "accelerate", "fastapi", "uvicorn", "pillow"]
 
-workdir ./app
+workdir /app
 
 copy app .
 expose 4001

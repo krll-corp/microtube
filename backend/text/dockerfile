@@ -1,6 +1,6 @@
 from python:3.13
 
-workdir ./app
+workdir /app
 
 run ["pip", "install", "fastapi", "uvicorn"]
 
