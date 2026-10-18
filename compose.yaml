@@ -1,12 +1,27 @@
 name: microtube
 
 services:
-  frontend-app:
+  frontend-main:
     build:
-      context: ./frontend/app
+      context: ./frontend/main
       dockerfile: dockerfile
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${FRONTEND_PORT:-8080}:80"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+
+  frontend-upload:
+    build:
+      context: ./frontend/upload
+      dockerfile: dockerfile
+    environment:
+      UPLOAD_API_PORT: ${UPLOAD_API_PORT:-3032}
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${UPLOAD_PORT:-8082}:80"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
@@ -56,6 +71,21 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3031/', timeout=3).close()"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+
+  backend-upload:
+    build:
+      context: ./backend/upload
+      dockerfile: dockerfile
+    volumes:
+      - videos:/videos
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${UPLOAD_API_PORT:-3032}:3032"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3032/docs', timeout=3).close()"]
       interval: 20s
       timeout: 5s
       retries: 3

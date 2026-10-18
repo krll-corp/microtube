@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload</title>
+</head>
+<body>
+    <form method="post" enctype="multipart/form-data">
+        <p><input type="file" name="file" accept="video/mp4" required></p>
+        <p><label>Title<input name="title" required></label></p>
+        <p><label>Description<textarea name="description"></textarea></label></p>
+        <p><label>Tags (separated by spaces)<input name="tags"></label></p>
+
+        <button type="submit">Upload</button>
+    </form>
+
+
+    
+    <script>
+        const target = new URL("/upload", location.href);
+        target.port = "${UPLOAD_API_PORT}";
+        document.querySelector("form").action = target.href;
+    </script>
+</body>
+</html>
