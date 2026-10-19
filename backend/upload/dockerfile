@@ -5,7 +5,7 @@ workdir /app
 env VIDEO_STORAGE_DIR=/videos
 volume ["/videos"]
 
-run ["pip", "install", "fastapi", "uvicorn", "python-multipart"]
+run ["pip", "install", "fastapi", "uvicorn", "python-multipart", "psycopg2"]
 
 copy app .
 expose 3032

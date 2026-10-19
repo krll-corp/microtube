@@ -79,6 +79,9 @@ services:
     build:
       context: ./backend/upload
       dockerfile: dockerfile
+    depends_on:
+      db-videos:
+        condition: service_healthy
     volumes:
       - videos:/videos
     ports:

@@ -1,5 +1,12 @@
+import os
 import secrets
+import shutil
+import psycopg2
+from pathlib import Path
 from fastapi import FastAPI, Form, UploadFile
+from psycopg2.extras import Json
+
+connection = psycopg2.connect(database="videos", user=os.getenv("POSTGRES_USER", "admin"), password=os.getenv("POSTGRES_PASSWORD", "pass"), host="microtube-db-videos-1", port=5432)
 
 app = FastAPI()
 
@@ -11,13 +18,48 @@ def run(
     tags: str = Form(""),
 ):
     id = secrets.token_urlsafe(6)
-    #TODO: save to /videos aka into the DB
-    return {
+
+    VIDEO_STORAGE_DIR = Path(os.getenv("VIDEO_STORAGE_DIR", "/videos"))
+    PATH_TO_VIDEO = VIDEO_STORAGE_DIR / id
+    while PATH_TO_VIDEO.exists():
+        id = secrets.token_urlsafe(6)
+        PATH_TO_VIDEO = VIDEO_STORAGE_DIR / id
+
+    with PATH_TO_VIDEO.open("xb") as destination:
+        shutil.copyfileobj(file.file, destination, length=1024 * 1024)
+
+    metadata = {
         "id": id,
         "filename": file.filename,
-        "size": file.size,
+        "size": PATH_TO_VIDEO.stat().st_size,
         "title": title,
         "description": description,
         "tags": tags.split(),
-        "stored": False,
+    }
+
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "INSERT INTO videos (hash, metadata) VALUES (%s, %s)",
+                    (id, Json(metadata)),
+                )
+    except Exception:
+        PATH_TO_VIDEO.unlink(missing_ok=True)
+        raise
+    try:
+        with connection:
+            with connection.cursor as cursor:
+                print(cursor.execute("select * from videos"))
+    except Exception:
+        pass
+
+    return {
+        "id": id,
+        "filename": file.filename,
+        "size": PATH_TO_VIDEO.stat().st_size,
+        "title": title,
+        "description": description,
+        "tags": tags.split(),
+        "stored": True,
     }
