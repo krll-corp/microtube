@@ -93,6 +93,18 @@ services:
       timeout: 5s
       retries: 3
 
+  backend-indexing:
+    build:
+      context: ./backend/indexing
+      dockerfile: dockerfile
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    depends_on:
+      db-videos:
+        condition: service_healthy
+    restart: unless-stopped
+
   backend-ai-video:
     build:
       context: ./backend/ai/video

@@ -41,18 +41,12 @@ def run(
         with connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "INSERT INTO videos (hash, metadata) VALUES (%s, %s)",
-                    (id, Json(metadata)),
+                    "INSERT INTO videos (hash, metadata, indexed, processing_now) VALUES (%s, %s, %s, %s)",
+                    (id, Json(metadata), False, False),
                 )
     except Exception:
         PATH_TO_VIDEO.unlink(missing_ok=True)
         raise
-    try:
-        with connection:
-            with connection.cursor as cursor:
-                print(cursor.execute("select * from videos"))
-    except Exception:
-        pass
 
     return {
         "id": id,

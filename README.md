@@ -30,6 +30,7 @@ To wait for startup checks, use `docker compose up -d --build --wait --wait-time
 | `backend-video` | http://127.0.0.1:3030/docs | Video API placeholder |
 | `backend-text` | http://127.0.0.1:3031/docs | Text API placeholder |
 | `backend-upload` | http://127.0.0.1:3032/docs | Receives a file and metadata |
+| `backend-indexing` | No HTTP endpoint | Background worker reading pending video metadata |
 | `backend-ai-video` | http://127.0.0.1:4001/docs | Video embeddings |
 | `backend-ai-text` | No HTTP endpoint yet | Runs `sleep infinity` until implemented |
 | `db-videos` | Internal: `db-videos:5432` | PostgreSQL database `videos` |
@@ -38,8 +39,14 @@ To wait for startup checks, use `docker compose up -d --build --wait --wait-time
 The upload form posts `file`, `title`, `description`, and `tags` to `/upload` on
 `UPLOAD_API_PORT` (default `3032`) on the same host as the page. Tags are separated
 by whitespace. The browser displays the JSON response; no `fetch` or CORS setup
-is needed for this native form submission. File storage and DB handling are still
-TODO: the endpoint currently confirms receipt and returns `stored: false`.
+is needed for this native form submission. The endpoint stores the file in
+`/videos/<id>`, writes its metadata to PostgreSQL, and returns `stored: true`.
+
+In `backend-indexing`, `run(id)` returns the `metadata` dictionary from PostgreSQL,
+or `None` when the video does not exist. Its `watcher()`
+function selects videos where both `indexed` and `processing_now` are false;
+the worker polls every 10 seconds and logs metadata or errors. AI calls and status
+updates are not implemented yet, so pending videos are logged again on each poll.
 
 Useful commands:
 
@@ -54,4 +61,4 @@ note: docker compose creates a shared network
 
 volumes: `microtube-videos-db`, `microtube-users-db`,`microtube-videos`, and `microtube-hf-cache`. They survive container recreation and `docker compose down`. 
 
-Files are stored as `/videos/<sha256>`; the database stores the hash and JSON metadata. (TODO: we don't need the hash to be sha256, we can use a smaller hash)
+Files are stored as `/videos/<id>`; the database stores this ID in `hash` and the JSON metadata in `metadata`.
