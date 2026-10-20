@@ -103,6 +103,10 @@ services:
     depends_on:
       db-videos:
         condition: service_healthy
+      backend-ai-video:
+        condition: service_healthy
+      backend-ai-text:
+        condition: service_healthy
     restart: unless-stopped
 
   backend-ai-video:
@@ -129,8 +133,19 @@ services:
     build:
       context: ./backend/ai/text
       dockerfile: dockerfile
-    command: ["sleep", "infinity"] #temporary
+    environment:
+      HF_HUB_DISABLE_PROGRESS_BARS: "1"
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${TEXT_AI_PORT:-4002}:4001"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4001/openapi.json', timeout=3).close()"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 10m
 
   db-videos:
     build:

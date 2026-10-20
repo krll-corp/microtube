@@ -8,4 +8,4 @@ workdir /app
 copy app .
 expose 4001
 
-#cmd ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "4001"]
+cmd ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "4001"]

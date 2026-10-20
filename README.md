@@ -30,9 +30,9 @@ To wait for startup checks, use `docker compose up -d --build --wait --wait-time
 | `backend-video` | http://127.0.0.1:3030/docs | Video API placeholder |
 | `backend-text` | http://127.0.0.1:3031/docs | Text API placeholder |
 | `backend-upload` | http://127.0.0.1:3032/docs | Receives a file and metadata |
-| `backend-indexing` | No HTTP endpoint | Background worker reading pending video metadata |
+| `backend-indexing` | No HTTP endpoint | Background worker saving video and tag embeddings |
 | `backend-ai-video` | http://127.0.0.1:4001/docs | Video embeddings |
-| `backend-ai-text` | No HTTP endpoint yet | Runs `sleep infinity` until implemented |
+| `backend-ai-text` | http://127.0.0.1:4002/docs | Text embeddings |
 | `db-videos` | Internal: `db-videos:5432` | PostgreSQL database `videos` |
 | `db-users` | Internal: `db-users:5432` | Empty PostgreSQL database `users` |
 
@@ -42,11 +42,21 @@ by whitespace. The browser displays the JSON response; no `fetch` or CORS setup
 is needed for this native form submission. The endpoint stores the file in
 `/videos/<id>`, writes its metadata to PostgreSQL, and returns `stored: true`.
 
-In `backend-indexing`, `run(id)` returns the `metadata` dictionary from PostgreSQL,
-or `None` when the video does not exist. Its `watcher()`
-function selects videos where both `indexed` and `processing_now` are false;
-the worker polls every 10 seconds and logs metadata or errors. AI calls and status
-updates are not implemented yet, so pending videos are logged again on each poll.
+In `backend-indexing`, the worker polls unindexed videos every 60 seconds.
+`run(video)` claims a video with a PostgreSQL session advisory lock and sets
+`processing_now = true`, then requests a video embedding and one text embedding
+per tag. Valid 768-dimensional vectors are saved to `vectors` as
+`{"video": [...], "text": [[...], ...]}` with tag vectors in metadata order.
+The vectors, `indexed = true`, and `processing_now = false` are committed together.
+On error, the video remains unindexed and is retried on the next poll; other videos
+continue processing. Session locks are released on disconnect, so interrupted
+videos can be picked up again even if `processing_now` was left true.
+Completed videos are skipped. Successes and errors are logged.
+
+`GET /embedding/text?text=dog` returns a normalized 768-dimensional vector. The
+text service uses the same model and shared model cache as the video service,
+with the unused vision and audio encoders disabled. `TEXT_AI_PORT` defaults to
+`4002` on the host; both AI containers use port `4001` internally.
 
 Useful commands:
 

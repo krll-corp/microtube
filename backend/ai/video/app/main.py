@@ -16,7 +16,7 @@ model = AutoModel.from_pretrained(MODEL_ID, device_map="auto", dtype=torch.float
 app = FastAPI()
 
 @app.get("/embedding/video")
-def run(hash: str = Query(pattern=r"^[0-9a-f]{64}$")):
+def run(hash: str = Query(pattern=r"^[0-9a-zA-Z_-]{8}$")):
     video = VIDEO_STORAGE_DIR / hash
     if not video.is_file():
         raise HTTPException(status_code=404, detail="Video not found")
