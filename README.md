@@ -27,7 +27,7 @@ To wait for startup checks, use `docker compose up -d --build --wait --wait-time
 | `frontend-main` | http://127.0.0.1:8080 | Frontend placeholder |
 | `frontend-upload` | http://127.0.0.1:8082 | Plain multipart upload form |
 | `frontend-monitor` | http://127.0.0.1:8081 | Monitor page placeholder |
-| `backend-video` | http://127.0.0.1:3030/docs | Video API placeholder |
+| `backend-video` | http://127.0.0.1:3030/docs | Video streaming with a bounded RAM cache |
 | `backend-text` | http://127.0.0.1:3031/docs | Text API placeholder |
 | `backend-upload` | http://127.0.0.1:3032/docs | Receives a file and metadata |
 | `backend-indexing` | No HTTP endpoint | Background worker saving video and tag embeddings |
@@ -57,6 +57,19 @@ Completed videos are skipped. Successes and errors are logged.
 text service uses the same model and shared model cache as the video service,
 with the unused vision and audio encoders disabled. `TEXT_AI_PORT` defaults to
 `4002` on the host; both AI containers use port `4001` internally.
+
+`GET /videos?id=<id>` on `backend-video` streams an uploaded MP4 inline. It checks
+that the ID exists in PostgreSQL and that the file exists in `/videos`. HTTP
+`Range` requests support seeking (`206 Partial Content`); `HEAD` returns headers
+without reading the file body. `GET /videos` without an ID is the health check.
+
+The process keeps recently requested small files in an LRU RAM cache, capped by
+`VIDEO_CACHE_MB` (default `64` MiB; `0` disables caching). Files larger than the
+budget stream from disk in chunks. The cache is cleared on container restart and
+invalidated when a file changes. `X-Cache` reports `MISS`, `HIT`, or `BYPASS`;
+multipart ranges use disk streaming. Database checks still run on cache hits.
+
+For example: `curl -H 'Range: bytes=0-1023' 'http://127.0.0.1:3030/videos?id=<id>'`.
 
 Useful commands:
 

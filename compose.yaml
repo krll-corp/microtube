@@ -48,10 +48,11 @@ services:
       dockerfile: dockerfile
     environment:
       VIDEO_STORAGE_DIR: /videos
+      VIDEO_CACHE_MB: ${VIDEO_CACHE_MB:-64}
       POSTGRES_USER: ${POSTGRES_USER:-admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
-      - videos:/videos
+      - videos:/videos:ro
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${VIDEO_API_PORT:-3030}:3030"
     depends_on:
