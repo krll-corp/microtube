@@ -5,7 +5,7 @@ workdir /app
 env VIDEO_STORAGE_DIR=/videos
 volume ["/videos"]
 
-run ["pip", "install", "fastapi", "uvicorn"]
+run ["pip", "install", "fastapi", "uvicorn", "psycopg2"]
 
 copy app .
 expose 3030

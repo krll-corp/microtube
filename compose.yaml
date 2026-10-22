@@ -48,6 +48,8 @@ services:
       dockerfile: dockerfile
     environment:
       VIDEO_STORAGE_DIR: /videos
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
       - videos:/videos
     ports:
@@ -57,7 +59,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3030/', timeout=3).close()"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3030/videos', timeout=3).close()"]
       interval: 20s
       timeout: 5s
       retries: 3
