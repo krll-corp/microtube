@@ -11,9 +11,10 @@ connection = psycopg2.connect(database="videos", user=os.getenv("POSTGRES_USER",
 
 app = FastAPI()
 
-@app.post("/upload", dependencies=[Depends(require_user)])
+@app.post("/upload")
 def run(
     file: UploadFile,
+    owner_hash: str = Depends(require_user),
     title: str = Form(...),
     description: str = Form(""),
     tags: str = Form(""),
@@ -31,6 +32,7 @@ def run(
 
     metadata = {
         "id": id,
+        "owner_hash": owner_hash,
         "filename": file.filename,
         "size": PATH_TO_VIDEO.stat().st_size,
         "title": title,
@@ -51,6 +53,7 @@ def run(
 
     return {
         "id": id,
+        "owner_hash": owner_hash,
         "filename": file.filename,
         "size": PATH_TO_VIDEO.stat().st_size,
         "title": title,

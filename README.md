@@ -54,8 +54,11 @@ version runs one auth instance. Streaming stays public; upload and search requir
 login. AI services and indexing do not use user authentication.
 
 The shared dependency is `backend/shared/microtube_auth.py`, mounted read-only at
-`/shared` with `PYTHONPATH=/shared`. It calls `backend-auth:3034/check` with a Bearer
-token and receives `true` or `false`. Port `3034` is not published on the host.
+`/shared` with `PYTHONPATH=/shared`. It calls `backend-auth:3034/user` with a Bearer
+token and returns the authenticated user's `login_hash`; an invalid session
+returns `null` from auth and is rejected by the dependency with `401`.
+The internal `/check` endpoint still returns `true` or `false`.
+Port `3034` is not published on the host.
 Changes to the shared module require restarting the services that import it.
 
 For an existing users volume, apply the new table once; initialization scripts
@@ -76,6 +79,10 @@ The upload form posts `file`, `title`, `description`, and `tags` to `/upload` on
 by whitespace. The browser displays the JSON response; no `fetch` or CORS setup
 is needed for this native form submission. The endpoint stores the file in
 `/videos/<id>`, writes its metadata to PostgreSQL, and returns `stored: true`.
+The metadata JSON and upload response include `owner_hash`, taken from the
+authenticated session's `login_hash`. A form field cannot override this value.
+Existing videos without an owner need an explicit assignment; their original
+uploader cannot be inferred from the stored metadata.
 
 In `backend-indexing`, the worker polls unindexed videos every 60 seconds.
 `run(video)` claims a video with a PostgreSQL session advisory lock and sets

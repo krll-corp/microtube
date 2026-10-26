@@ -113,6 +113,11 @@ def check(token=Depends(bearer)):
     return session_user(token.credentials if token else None) is not None
 
 
+@internal.get("/user")
+def user(token=Depends(bearer)):
+    return session_user(token.credentials if token else None)
+
+
 if __name__ == "__main__":
     # Both listeners share the same token dictionary in one process.
     Thread(target=uvicorn.run, args=(internal,), kwargs={"host": "0.0.0.0", "port": 3034}, daemon=True).start()

@@ -32,14 +32,14 @@ def require_user(token=Depends(user_token)):
     if token is None:
         raise HTTPException(401, "not logged in", headers={"WWW-Authenticate": "Bearer"})
     request = URLRequest(
-        "http://backend-auth:3034/check",
+        "http://backend-auth:3034/user",
         headers={"Authorization": f"Bearer {token}"},
     )
     try:
         with urlopen(request, timeout=3) as response:
-            logged_in = json.load(response)
+            login_hash = json.load(response)
     except (OSError, ValueError) as error:
         raise HTTPException(503, "Authentication service unavailable") from error
-    if logged_in is not True:
+    if not isinstance(login_hash, str) or len(login_hash) != 64:
         raise HTTPException(401, "not logged in", headers={"WWW-Authenticate": "Bearer"})
-    return True
+    return login_hash
