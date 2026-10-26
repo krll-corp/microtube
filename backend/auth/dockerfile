@@ -1,0 +1,8 @@
+from python:3.13
+
+workdir /app
+run ["pip", "install", "fastapi", "uvicorn", "psycopg2", "python-multipart"]
+
+copy app .
+expose 3033 3034
+cmd ["python", "-u", "main.py"]

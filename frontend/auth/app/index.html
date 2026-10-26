@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+</head>
+<body>
+    <form method="post">
+        <p><label>Login <input id="login" autocomplete="username" required></label></p>
+        <p><label>Password <input id="password" type="password" autocomplete="current-password" minlength="8" required></label></p>
+        <input type="hidden" name="login_hash">
+        <input type="hidden" name="password_hash">
+        <button type="submit" value="login">Login</button>
+        <button type="submit" value="register">Register</button>
+    </form>
+
+    <script>
+        async function hash(value) {
+            const first = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+            const second = await crypto.subtle.digest("SHA-256", first);
+            return Array.from(new Uint8Array(second), byte => byte.toString(16).padStart(2, "0")).join("");
+        }
+
+        const form = document.querySelector("form");
+        form.addEventListener("submit", async event => {
+            event.preventDefault();
+            if (!globalThis.crypto?.subtle) {
+                alert("Hashing requires HTTPS or localhost.");
+                return;
+            }
+            form.elements.login_hash.value = await hash(document.getElementById("login").value);
+            form.elements.password_hash.value = await hash(document.getElementById("password").value);
+            const target = new URL("/auth/" + (event.submitter?.value || "login"), location.href);
+            target.port = "${AUTH_API_PORT}";
+            form.action = target.href;
+            form.submit();
+        });
+    </script>
+</body>
+</html>

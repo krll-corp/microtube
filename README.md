@@ -27,14 +27,49 @@ To wait for startup checks, use `docker compose up -d --build --wait --wait-time
 | `frontend-main` | http://127.0.0.1:8080 | Frontend placeholder |
 | `frontend-upload` | http://127.0.0.1:8082 | Plain multipart upload form |
 | `frontend-monitor` | http://127.0.0.1:8081 | Monitor page placeholder |
+| `frontend-auth` | http://127.0.0.1:8083 | Login and registration form |
 | `backend-video` | http://127.0.0.1:3030/docs | Video streaming with a bounded RAM cache |
-| `backend-text` | http://127.0.0.1:3031/docs | Text API placeholder |
-| `backend-upload` | http://127.0.0.1:3032/docs | Receives a file and metadata |
+| `backend-text` | http://127.0.0.1:3031/docs | Authenticated text search skeleton |
+| `backend-upload` | http://127.0.0.1:3032/docs | Receives a file and metadata after login |
+| `backend-auth` | http://127.0.0.1:3033/docs | Registration, login, logout and session information |
 | `backend-indexing` | No HTTP endpoint | Background worker saving video and tag embeddings |
 | `backend-ai-video` | http://127.0.0.1:4001/docs | Video embeddings |
 | `backend-ai-text` | http://127.0.0.1:4002/docs | Text embeddings |
 | `db-videos` | Internal: `db-videos:5432` | PostgreSQL database `videos` |
-| `db-users` | Internal: `db-users:5432` | Empty PostgreSQL database `users` |
+| `db-users` | Internal: `db-users:5432` | Login and password hashes |
+
+Open the login form on port `8083`, register or log in, then open the upload form
+on port `8082`. Use the same hostname for both pages. Both login and password are
+case-sensitive and hashed in the browser as `SHA256(SHA256(UTF8(value)))`, with
+the binary digest as input to the second hash. Only the two hexadecimal hashes
+are sent as form fields `login_hash` and `password_hash` and stored in `users`.
+Registration and login return a random token and set an HttpOnly session cookie.
+The native upload form sends this cookie automatically; API clients can instead
+use `Authorization: Bearer <token>`.
+
+`GET /auth/me` returns the current login hash, and `POST /auth/logout` invalidates
+the current token. Sessions expire after `AUTH_TOKEN_TTL_SECONDS` (default `3600`)
+and are kept in one process's memory: restarting auth logs everyone out. This
+version runs one auth instance. Streaming stays public; upload and search require
+login. AI services and indexing do not use user authentication.
+
+The shared dependency is `backend/shared/microtube_auth.py`, mounted read-only at
+`/shared` with `PYTHONPATH=/shared`. It calls `backend-auth:3034/check` with a Bearer
+token and receives `true` or `false`. Port `3034` is not published on the host.
+Changes to the shared module require restarting the services that import it.
+
+For an existing users volume, apply the new table once; initialization scripts
+only run automatically for a fresh database:
+
+```bash
+docker compose exec -T db-users sh -c 'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < db/users/init.sql
+```
+
+Client-side double SHA-256 is a prototype choice: the password hash itself can
+be used to log in and must be treated as a password. A fast unsalted hash does not
+provide modern password-storage protection ([OWASP guidance](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)). (TODO)
+Browser hashing needs HTTPS outside localhost (also TODO). With HTTPS, set
+`AUTH_COOKIE_SECURE=true` so the session cookie is only sent over HTTPS.
 
 The upload form posts `file`, `title`, `description`, and `tags` to `/upload` on
 `UPLOAD_API_PORT` (default `3032`) on the same host as the page. Tags are separated
@@ -81,6 +116,11 @@ docker compose exec db-videos psql -U admin -d videos
 ```
 
 note: docker compose creates a shared network
+
+`BIND_ADDRESS` selects the host interface for published ports: `127.0.0.1` for
+local access, a private/VPN IP for that interface, or `0.0.0.0` for all IPv4
+interfaces. It does not change container DNS or create networking across hosts.
+Within this Compose network, services use names such as `backend-ai-video:4001`.
 
 volumes: `microtube-videos-db`, `microtube-users-db`,`microtube-videos`, and `microtube-hf-cache`. They survive container recreation and `docker compose down`. 
 

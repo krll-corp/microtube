@@ -3,14 +3,15 @@ import secrets
 import shutil
 import psycopg2
 from pathlib import Path
-from fastapi import FastAPI, Form, UploadFile
+from fastapi import Depends, FastAPI, Form, UploadFile
 from psycopg2.extras import Json
+from microtube_auth import require_user
 
-connection = psycopg2.connect(database="videos", user=os.getenv("POSTGRES_USER", "admin"), password=os.getenv("POSTGRES_PASSWORD", "pass"), host="microtube-db-videos-1", port=5432)
+connection = psycopg2.connect(database="videos", user=os.getenv("POSTGRES_USER", "admin"), password=os.environ["POSTGRES_PASSWORD"], host="db-videos", port=5432)
 
 app = FastAPI()
 
-@app.post("/upload")
+@app.post("/upload", dependencies=[Depends(require_user)])
 def run(
     file: UploadFile,
     title: str = Form(...),
