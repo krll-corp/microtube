@@ -1,11 +1,9 @@
-FROM nginx:alpine
+from nginx:alpine
 
-COPY ./app/index.html /etc/nginx/templates/index.html.template
-COPY ./app/styles.css /usr/share/nginx/html/styles.css
+copy ./app/index.html /etc/nginx/templates/index.html.template
+copy ./app/styles.css /usr/share/nginx/html/styles.css
+env AUTH_API_PORT=3033
+env NGINX_ENVSUBST_OUTPUT_DIR=/usr/share/nginx/html
 
-ENV AUTH_API_PORT=3033
-ENV NGINX_ENVSUBST_OUTPUT_DIR=/usr/share/nginx/html
-
-EXPOSE 80
-
-CMD ["nginx", "-g", "daemon off;"]
+expose 80
+cmd ["nginx", "-g", "daemon off;"]
