@@ -1,26 +1,380 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="uk">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Upload</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f8f7f4">
+    <title>Creator Studio — MicroTube</title>
+
+    <link rel="stylesheet" href="/styles.css">
 </head>
+
 <body>
-    <form method="post" enctype="multipart/form-data">
-        <p><input type="file" name="file" accept="video/mp4" required></p>
-        <p><label>Title<input name="title" required></label></p>
-        <p><label>Description<textarea name="description"></textarea></label></p>
-        <p><label>Tags (separated by spaces)<input name="tags"></label></p>
+<div class="shell">
+    <header>
+        <a class="brand" href="http://localhost:8080/">
+            <span class="brand-icon">m</span>
+            <span>microtube</span>
+        </a>
 
-        <button type="submit">Upload</button>
-    </form>
+        <nav class="nav">
+            <a href="http://localhost:8080/">Головна</a>
+            <a href="http://localhost:8083/">Акаунт</a>
+            <a href="http://localhost:8081/">Стан системи</a>
+        </nav>
+    </header>
 
+    <main>
+        <div class="eyebrow">Creator Studio</div>
+        <h1>Поділися своїм відео.</h1>
+        <p class="intro">
+            Завантаж відео у форматі MP4, додай назву, опис і теги.
+            Ці метадані допоможуть знаходити твій контент на MicroTube.
+        </p>
 
-    
-    <script>
-        const target = new URL("/upload", location.href);
-        target.port = "${UPLOAD_API_PORT}";
-        document.querySelector("form").action = target.href;
-    </script>
+        <div class="layout">
+            <section class="panel">
+                <h2>Нове відео</h2>
+                <p class="panel-subtitle">
+                    Спочатку вибери файл, а потім заповни інформацію про нього.
+                </p>
+
+                <form id="upload-form">
+                    <div class="dropzone" id="dropzone">
+                        <div class="upload-icon">↑</div>
+                        <strong>Перетягни відео сюди</strong>
+                        <p>Або вибери MP4-файл на своєму пристрої.</p>
+
+                        <button class="button" type="button" id="choose-file">
+                            Вибрати файл
+                        </button>
+
+                        <input
+                            id="video-file"
+                            name="file"
+                            type="file"
+                            accept=".mp4,video/mp4"
+                            required
+                            hidden
+                        >
+
+                        <div class="file-info" id="file-info" hidden></div>
+
+                        <video
+                            id="video-preview"
+                            class="preview"
+                            controls
+                            playsinline
+                            hidden>
+                        </video>
+                    </div>
+
+                    <div class="field">
+                        <label for="title">Назва відео *</label>
+                        <input
+                            id="title"
+                            name="title"
+                            type="text"
+                            maxlength="200"
+                            placeholder="Наприклад, Моя подорож у Карпати"
+                            required
+                        >
+                    </div>
+
+                    <div class="field">
+                        <label for="description">Опис</label>
+                        <textarea
+                            id="description"
+                            name="description"
+                            maxlength="5000"
+                            placeholder="Розкажи, про що це відео..."
+                        ></textarea>
+                    </div>
+
+                    <div class="field">
+                        <label for="tags">Теги</label>
+                        <input
+                            id="tags"
+                            name="tags"
+                            type="text"
+                            placeholder="подорожі природа карпати"
+                        >
+                        <div class="help">
+                            Вводь теги через пробіл, наприклад:
+                            подорожі природа навчання.
+                        </div>
+                    </div>
+
+                    <div class="progress-wrap" id="progress-wrap" hidden>
+                        <div class="progress-label">
+                            <span id="progress-text">Завантаження...</span>
+                            <span id="progress-percent">0%</span>
+                        </div>
+                        <progress id="progress-bar" max="100" value="0"></progress>
+                    </div>
+
+                    <div id="feedback" class="message" role="status" hidden></div>
+
+                    <div class="submit-row">
+                        <button
+                            class="button button-primary"
+                            id="submit-button"
+                            type="submit">
+                            Завантажити відео
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <aside class="panel">
+                <h2>Як це працює</h2>
+                <p class="panel-subtitle">
+                    Кілька простих кроків до публікації.
+                </p>
+
+                <div class="guide-list">
+                    <div class="guide-item">
+                        <span class="guide-number">01</span>
+                        <div>
+                            <strong>Вибери MP4</strong>
+                            <p>
+                                Перевір, що вибрано потрібний відеофайл.
+                                Перед завантаженням його можна переглянути.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="guide-item">
+                        <span class="guide-number">02</span>
+                        <div>
+                            <strong>Додай метадані</strong>
+                            <p>
+                                Назва, опис і теги допомагають ідентифікувати
+                                відео та готують його до пошукової індексації.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="guide-item">
+                        <span class="guide-number">03</span>
+                        <div>
+                            <strong>Завантаж відео</strong>
+                            <p>
+                                Файл і дані буде передано на наявний
+                                сервіс завантаження MicroTube.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="note">
+                    <strong>Перш ніж завантажувати:</strong><br>
+                    увійди у свій акаунт MicroTube. Без активної сесії
+                    сервер може відхилити запит.
+                </div>
+            </aside>
+        </div>
+    </main>
+
+    <footer>
+        MicroTube · Creator Studio
+    </footer>
+</div>
+
+<script>
+(() => {
+    const form = document.getElementById("upload-form");
+    const fileInput = document.getElementById("video-file");
+    const dropzone = document.getElementById("dropzone");
+    const fileInfo = document.getElementById("file-info");
+    const preview = document.getElementById("video-preview");
+    const feedback = document.getElementById("feedback");
+    const submitButton = document.getElementById("submit-button");
+    const progressWrap = document.getElementById("progress-wrap");
+    const progressBar = document.getElementById("progress-bar");
+    const progressText = document.getElementById("progress-text");
+    const progressPercent = document.getElementById("progress-percent");
+
+    let previewUrl = null;
+
+    document.getElementById("choose-file").addEventListener("click", () => {
+        fileInput.click();
+    });
+
+    function formatSize(bytes) {
+        if (bytes < 1024 * 1024) {
+            return `${(bytes / 1024).toFixed(1)} KB`;
+        }
+
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    function showMessage(message, type = "error") {
+        feedback.hidden = false;
+        feedback.className = `message ${type}`;
+        feedback.textContent = message;
+    }
+
+    function useFile(file) {
+        if (!file) return;
+
+        if (!file.name.toLowerCase().endsWith(".mp4")) {
+            showMessage("Будь ласка, вибери відеофайл із розширенням .mp4.");
+            return;
+        }
+
+        fileInput.files = (() => {
+            const transfer = new DataTransfer();
+            transfer.items.add(file);
+            return transfer.files;
+        })();
+
+        fileInfo.hidden = false;
+        fileInfo.replaceChildren();
+
+        const name = document.createElement("strong");
+        name.textContent = file.name;
+
+        const size = document.createElement("small");
+        size.textContent = formatSize(file.size);
+
+        fileInfo.append(name, size);
+
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        previewUrl = URL.createObjectURL(file);
+
+        preview.src = previewUrl;
+        preview.hidden = false;
+        feedback.hidden = true;
+    }
+
+    fileInput.addEventListener("change", () => {
+        useFile(fileInput.files[0]);
+    });
+
+    ["dragenter", "dragover"].forEach(name => {
+        dropzone.addEventListener(name, event => {
+            event.preventDefault();
+            dropzone.classList.add("dragging");
+        });
+    });
+
+    ["dragleave", "drop"].forEach(name => {
+        dropzone.addEventListener(name, event => {
+            event.preventDefault();
+            dropzone.classList.remove("dragging");
+        });
+    });
+
+    dropzone.addEventListener("drop", event => {
+        const file = event.dataTransfer.files[0];
+        useFile(file);
+    });
+
+    form.addEventListener("submit", event => {
+        event.preventDefault();
+        feedback.hidden = true;
+
+        const file = fileInput.files[0];
+
+        if (!file || !file.name.toLowerCase().endsWith(".mp4")) {
+            showMessage("Спочатку вибери MP4-файл.");
+            return;
+        }
+
+        const formData = new FormData(form);
+
+        submitButton.disabled = true;
+        submitButton.textContent = "Завантаження...";
+        progressWrap.hidden = false;
+        progressBar.value = 0;
+        progressText.textContent = "Передавання файлу";
+        progressPercent.textContent = "0%";
+
+        const request = new XMLHttpRequest();
+        request.open("POST", "/api/upload/upload");
+        request.withCredentials = true;
+        request.responseType = "text";
+        request.timeout = 30 * 60 * 1000;
+
+        request.upload.addEventListener("progress", event => {
+            if (!event.lengthComputable) return;
+
+            const percent = Math.round((event.loaded / event.total) * 100);
+            progressBar.value = percent;
+            progressPercent.textContent = `${percent}%`;
+        });
+
+        request.addEventListener("load", () => {
+            submitButton.disabled = false;
+            submitButton.textContent = "Завантажити відео";
+
+            let result = {};
+
+            try {
+                result = JSON.parse(request.responseText);
+            } catch {
+                result = {};
+            }
+
+            if (request.status >= 200 && request.status < 300 && result.stored) {
+                progressBar.value = 100;
+                progressPercent.textContent = "100%";
+                progressText.textContent = "Завантаження завершено";
+
+                showMessage(
+                    `Відео «${result.title}» завантажено успішно. ID: ${result.id}.`,
+                    "success"
+                );
+
+                const link = document.createElement("a");
+                const params = new URLSearchParams({
+                    video: result.id,
+                    title: result.title || "",
+                    description: result.description || "",
+                    tags: Array.isArray(result.tags) ? result.tags.join(" ") : ""
+                });
+
+                link.href = `http://localhost:8080/?${params.toString()}`;
+                link.textContent = "Перейти до відео";
+                link.className = "button button-primary";
+                link.style.marginTop = "12px";
+                link.style.width = "fit-content";
+                feedback.append(document.createElement("br"), link);
+
+                return;
+            }
+
+            if (request.status === 401 || request.status === 403) {
+                showMessage(
+                    "Сервер відхилив запит. Увійди в MicroTube та спробуй ще раз."
+                );
+                return;
+            }
+
+            const detail = result.detail;
+            showMessage(
+                typeof detail === "string"
+                    ? detail
+                    : `Не вдалося завантажити відео (HTTP ${request.status}).`
+            );
+        });
+
+        request.addEventListener("error", () => {
+            submitButton.disabled = false;
+            submitButton.textContent = "Завантажити відео";
+            showMessage("Не вдалося зв'язатися із сервером завантаження.");
+        });
+
+        request.addEventListener("timeout", () => {
+            submitButton.disabled = false;
+            submitButton.textContent = "Завантажити відео";
+            showMessage("Час очікування вичерпано. Перевір з'єднання й спробуй ще раз.");
+        });
+
+        request.send(formData);
+    });
+})();
+</script>
 </body>
 </html>

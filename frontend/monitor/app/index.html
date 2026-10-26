@@ -1,11 +1,388 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="uk">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#ffffff">
+    <title>System Status — MicroTube</title>
+
+    <link rel="stylesheet" href="/styles.css">
 </head>
+
 <body>
-    <div>static service monitoring page</div>
+<div class="shell">
+    <header>
+        <a class="brand" href="http://localhost:8080/">
+            <span class="brand-icon">m</span>
+            <span>microtube status</span>
+        </a>
+        <a class="header-link" href="http://localhost:8080/">
+            Повернутися до MicroTube →
+        </a>
+    </header>
+
+    <main>
+        <div class="page-eyebrow">Стан платформи</div>
+        <h1>Стан системи MicroTube</h1>
+        <p class="subtitle">
+            Поточна доступність вебінтерфейсів, API та AI-компонентів.
+        </p>
+
+        <section class="overall loading" id="overall">
+            <div class="overall-heading">
+                <div class="overall-icon" id="overall-icon">…</div>
+                <div class="overall-title" id="overall-title">
+                    Перевіряємо компоненти системи
+                </div>
+            </div>
+            <p class="overall-detail" id="overall-detail">
+                Виконується перша перевірка доступності.
+            </p>
+        </section>
+
+        <div class="toolbar">
+            <h2>Компоненти</h2>
+            <div>
+                <div class="last-updated" id="last-updated">
+                    Очікування перевірки
+                </div>
+                <button type="button" class="refresh-button"
+                        id="refresh-button" style="margin-top:8px">
+                    Перевірити зараз
+                </button>
+            </div>
+        </div>
+
+        <div id="components">
+            <p class="subtitle">Завантаження станів сервісів…</p>
+        </div>
+
+        <div class="note">
+            <strong>Про ці перевірки.</strong>
+            Статуси відображають результат HTTP-запитів із браузера через
+            внутрішній проксі. Зелений статус означає, що перевірений
+            ендпоінт відповів успішно, але не гарантує, що кожна функція
+            сервісу працює без помилок. Історія зберігається локально
+            в цьому браузері.
+            <br><br>
+            Бази PostgreSQL та фоновий сервіс індексації не мають окремої
+            HTTP-перевірки в цій версії. Для повного моніторингу потрібні
+            окремі health-check або Prometheus/Grafana.
+        </div>
+    </main>
+
+    <footer>
+        MicroTube Status · Автоматична перевірка кожні 30 секунд
+    </footer>
+</div>
+
+<script>
+(() => {
+    const services = [
+        {
+            group: "Фронтенди",
+            id: "main-ui",
+            name: "Основний інтерфейс",
+            description: "Каталог і перегляд відео",
+            endpoint: "/checks/main"
+        },
+        {
+            group: "Фронтенди",
+            id: "auth-ui",
+            name: "Автентифікація",
+            description: "Сторінка входу й реєстрації",
+            endpoint: "/checks/auth-ui"
+        },
+        {
+            group: "Фронтенди",
+            id: "upload-ui",
+            name: "Creator Studio",
+            description: "Інтерфейс завантаження відео",
+            endpoint: "/checks/upload-ui"
+        },
+        {
+            group: "Фронтенди",
+            id: "monitor-ui",
+            name: "MicroTube Status",
+            description: "Поточна сторінка моніторингу",
+            endpoint: "/checks/monitor"
+        },
+        {
+            group: "Backend API",
+            id: "auth-api",
+            name: "Authentication API",
+            description: "Health endpoint",
+            endpoint: "/checks/auth-api"
+        },
+        {
+            group: "Backend API",
+            id: "video-api",
+            name: "Video API",
+            description: "Перевірка ендпоінта /videos",
+            endpoint: "/checks/video-api"
+        },
+        {
+            group: "Backend API",
+            id: "upload-api",
+            name: "Upload API",
+            description: "Документація API",
+            endpoint: "/checks/upload-api"
+        },
+        {
+            group: "Backend API",
+            id: "text-api",
+            name: "Text Search API",
+            description: "Health endpoint",
+            endpoint: "/checks/text-api"
+        },
+        {
+            group: "AI-сервіси",
+            id: "ai-video",
+            name: "Video AI",
+            description: "OpenAPI endpoint",
+            endpoint: "/checks/ai-video"
+        },
+        {
+            group: "AI-сервіси",
+            id: "ai-text",
+            name: "Text AI",
+            description: "OpenAPI endpoint",
+            endpoint: "/checks/ai-text"
+        }
+    ];
+
+    const HISTORY_LIMIT = 30;
+    const HISTORY_KEY = "microtube-status-history-v1";
+
+    let history = {};
+
+    try {
+        history = JSON.parse(localStorage.getItem(HISTORY_KEY) || "{}");
+    } catch {
+        history = {};
+    }
+
+    services.forEach(service => {
+        if (!Array.isArray(history[service.id])) {
+            history[service.id] = [];
+        }
+
+        history[service.id] = history[service.id].slice(-HISTORY_LIMIT);
+    });
+
+    const components = document.getElementById("components");
+    const overall = document.getElementById("overall");
+    const overallIcon = document.getElementById("overall-icon");
+    const overallTitle = document.getElementById("overall-title");
+    const overallDetail = document.getElementById("overall-detail");
+    const lastUpdated = document.getElementById("last-updated");
+    const refreshButton = document.getElementById("refresh-button");
+
+    let checking = false;
+
+    function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, character => ({
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            '"': "&quot;",
+            "'": "&#39;"
+        })[character]);
+    }
+
+    function historyMarkup(id) {
+        const items = history[id] || [];
+        const padding = Math.max(0, HISTORY_LIMIT - items.length);
+
+        let bars = "";
+
+        for (let i = 0; i < padding; i++) {
+            bars += '<span class="history-bar checking" title="Ще немає даних"></span>';
+        }
+
+        items.forEach(item => {
+            const cls = item.ok ? "ok" : "fail";
+            const title = item.ok ? "Успішна перевірка" : "Помилка перевірки";
+
+            bars += `<span class="history-bar ${cls}"
+                title="${title}"></span>`;
+        });
+
+        return `<div class="history">${bars}</div>
+            <div class="history-note">Останні ${items.length} перевірок</div>`;
+    }
+
+    function render() {
+        const groups = [...new Set(services.map(service => service.group))];
+
+        components.innerHTML = groups.map(group => {
+            const groupServices = services.filter(service => service.group === group);
+
+            return `
+                <section class="group">
+                    <div class="group-title">
+                        <h3>${escapeHtml(group)}</h3>
+                        <span class="group-count">
+                            ${groupServices.length} компонентів
+                        </span>
+                    </div>
+
+                    ${groupServices.map(service => {
+                        const item = history[service.id] || [];
+                        const latest = item[item.length - 1];
+
+                        let stateClass = "checking";
+                        let stateText = "Очікує перевірки";
+                        let latency = "—";
+
+                        if (latest) {
+                            stateClass = latest.ok ? "operational" : "down";
+                            stateText = latest.ok ? "Працює" : "Недоступний";
+                            latency = latest.ok ? `${latest.ms} мс` : "Помилка";
+                        }
+
+                        return `
+                            <div class="service-row">
+                                <div>
+                                    <div class="service-name">
+                                        ${escapeHtml(service.name)}
+                                    </div>
+                                    <div class="service-description">
+                                        ${escapeHtml(service.description)}
+                                    </div>
+                                </div>
+
+                                <div class="service-status">
+                                    <span class="status-label ${stateClass}">
+                                        <span class="dot"></span>
+                                        ${stateText}
+                                    </span>
+                                </div>
+
+                                <div class="service-history">
+                                    ${historyMarkup(service.id)}
+                                </div>
+
+                                <div class="latency">${latency}</div>
+                            </div>
+                        `;
+                    }).join("")}
+                </section>
+            `;
+        }).join("");
+
+        const completed = services.filter(service => {
+            const items = history[service.id] || [];
+            return items.length > 0;
+        });
+
+        const failed = completed.filter(service => {
+            const items = history[service.id];
+            return !items[items.length - 1].ok;
+        });
+
+        if (completed.length === 0) {
+            overall.className = "overall loading";
+            overallIcon.textContent = "…";
+            overallTitle.textContent = "Перевіряємо компоненти системи";
+            overallDetail.textContent = "Очікуємо результати HTTP-перевірок.";
+        } else if (failed.length > 0) {
+            overall.className = "overall degraded";
+            overallIcon.textContent = "!";
+            overallTitle.textContent = "Виявлено проблеми з доступністю";
+            overallDetail.textContent =
+                `${failed.length} із ${services.length} компонентів не відповіли успішно. Перевір журнали відповідних сервісів.`;
+        } else if (completed.length === services.length) {
+            overall.className = "overall";
+            overallIcon.textContent = "✓";
+            overallTitle.textContent = "Усі перевірені системи працюють";
+            overallDetail.textContent =
+                `Усі ${services.length} HTTP-перевірок успішні. Це не є перевіркою баз даних або внутрішніх функцій сервісів.`;
+        } else {
+            overall.className = "overall loading";
+            overallIcon.textContent = "…";
+            overallTitle.textContent = "Перевірка триває";
+            overallDetail.textContent =
+                `Отримано результатів: ${completed.length} із ${services.length}.`;
+        }
+
+        if (lastUpdated.dataset.time) {
+            lastUpdated.textContent =
+                `Оновлено: ${new Date(Number(lastUpdated.dataset.time)).toLocaleTimeString("uk-UA")}`;
+        }
+    }
+
+    async function checkService(service) {
+        const started = performance.now();
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+
+        try {
+            const response = await fetch(service.endpoint, {
+                method: "GET",
+                cache: "no-store",
+                signal: controller.signal
+            });
+
+            return {
+                ok: response.ok,
+                ms: Math.round(performance.now() - started)
+            };
+        } catch {
+            return {
+                ok: false,
+                ms: Math.round(performance.now() - started)
+            };
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+
+    async function runChecks() {
+        if (checking) return;
+
+        checking = true;
+        refreshButton.disabled = true;
+        refreshButton.textContent = "Перевіряємо…";
+
+        const results = await Promise.all(
+            services.map(async service => ({
+                service,
+                result: await checkService(service)
+            }))
+        );
+
+        results.forEach(({ service, result }) => {
+            history[service.id].push({
+                ok: result.ok,
+                ms: result.ms,
+                time: Date.now()
+            });
+
+            history[service.id] =
+                history[service.id].slice(-HISTORY_LIMIT);
+        });
+
+        try {
+            localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+        } catch (error) {
+            console.warn("Не вдалося зберегти історію перевірок.", error);
+        }
+
+        lastUpdated.dataset.time = String(Date.now());
+        render();
+
+        checking = false;
+        refreshButton.disabled = false;
+        refreshButton.textContent = "Перевірити зараз";
+    }
+
+    refreshButton.addEventListener("click", runChecks);
+
+    render();
+    runChecks();
+    setInterval(runChecks, 30000);
+})();
+</script>
 </body>
 </html>

@@ -1,11 +1,57 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="uk">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#fbf8f2">
+    <meta name="description" content="MicroTube — відеохостинг для перегляду та публікації відео">
+    <title>MicroTube — відеохостинг</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script defer src="/app.js"></script>
 </head>
 <body>
-    <div>main app page</div>
+    <div class="site-shell">
+        <header class="topbar">
+            <a class="brand" href="/">
+                <span class="brand-mark">m</span>
+                <span>microtube</span>
+            </a>
+
+            <form class="search-form" id="search-form">
+                <span aria-hidden="true">⌕</span>
+                <input
+                    id="global-search"
+                    type="search"
+                    placeholder="Пошук відео"
+                    aria-label="Пошук відео"
+                >
+                <button type="submit">Знайти</button>
+            </form>
+
+            <nav class="top-actions">
+                <a class="upload-link" id="upload-link"
+                   href="http://localhost:8082/">
+                    + Завантажити
+                </a>
+                <a class="account-link" id="account-link"
+                   href="http://localhost:8083/">
+                    Увійти
+                </a>
+            </nav>
+        </header>
+
+        <main id="app-main">
+            <p>Завантаження MicroTube...</p>
+        </main>
+
+        <footer class="site-footer">
+            <a class="brand" href="/">
+                <span class="brand-mark">m</span>
+                <span>microtube</span>
+            </a>
+            <span>Місце, де відео знаходять свою аудиторію.</span>
+            <a href="http://localhost:8081/">Стан системи</a>
+        </footer>
+    </div>
 </body>
 </html>
