@@ -1,10 +1,14 @@
 # microtube
 A YouTube clone without the bloatware | student project
 
-**This a a student pet project.** We are aiming to create a scalable cluster with a minimalistic video player.
+**This is a student pet project.** We are aiming to create a scalable cluster with a minimalistic video player.
 
 ---
 ![main page render](assets/main-page.png)
+
+The renders in `assets/main-page.png` and `assets/video-page.png` are design
+references, not current application screenshots. See `AGENTS.md` for the pixel-style
+design direction and future dark-theme considerations.
 
 ## Launch
 
@@ -24,9 +28,9 @@ To wait for startup checks, use `docker compose up -d --build --wait --wait-time
 
 | Service | Local address | Current role |
 | --- | --- | --- |
-| `frontend-main` | http://127.0.0.1:8080 | Frontend placeholder |
-| `frontend-upload` | http://127.0.0.1:8082 | Plain multipart upload form |
-| `frontend-monitor` | http://127.0.0.1:8081 | Monitor page placeholder |
+| `frontend-main` | http://127.0.0.1:8080 | Demo catalog, local filtering and watch-page UI |
+| `frontend-upload` | http://127.0.0.1:8082 | Creator upload UI with preview and progress |
+| `frontend-monitor` | http://127.0.0.1:8081 | HTTP availability monitor |
 | `frontend-auth` | http://127.0.0.1:8083 | Login and registration form |
 | `backend-video` | http://127.0.0.1:3030/docs | Video streaming with a bounded RAM cache |
 | `backend-text` | http://127.0.0.1:3031/docs | Authenticated text search skeleton |
@@ -44,7 +48,7 @@ case-sensitive and hashed in the browser as `SHA256(SHA256(UTF8(value)))`, with
 the binary digest as input to the second hash. Only the two hexadecimal hashes
 are sent as form fields `login_hash` and `password_hash` and stored in `users`.
 Registration and login return a random token and set an HttpOnly session cookie.
-The native upload form sends this cookie automatically; API clients can instead
+The upload UI sends this cookie with its XMLHttpRequest; API clients can instead
 use `Authorization: Bearer <token>`.
 
 `GET /auth/me` returns the current login hash, and `POST /auth/logout` invalidates
@@ -74,11 +78,11 @@ provide modern password-storage protection ([OWASP guidance](https://cheatsheets
 Browser hashing needs HTTPS outside localhost (also TODO). With HTTPS, set
 `AUTH_COOKIE_SECURE=true` so the session cookie is only sent over HTTPS.
 
-The upload form posts `file`, `title`, `description`, and `tags` to `/upload` on
-`UPLOAD_API_PORT` (default `3032`) on the same host as the page. Tags are separated
-by whitespace. The browser displays the JSON response; no `fetch` or CORS setup
-is needed for this native form submission. The endpoint stores the file in
-`/videos/<id>`, writes its metadata to PostgreSQL, and returns `stored: true`.
+The upload UI posts `file`, `title`, `description`, and `tags` via XMLHttpRequest
+to `/api/upload/upload` on port `8082`, proxied to `backend-upload:3032/upload`.
+Tags are separated by whitespace. The UI shows upload progress and the server's
+response. The endpoint stores the file in `/videos/<id>`, writes its metadata to
+PostgreSQL, and returns `stored: true`.
 The metadata JSON and upload response include `owner_hash`, taken from the
 authenticated session's `login_hash`. A form field cannot override this value.
 Existing videos without an owner need an explicit assignment; their original
@@ -132,3 +136,10 @@ Within this Compose network, services use names such as `backend-ai-video:4001`.
 volumes: `microtube-videos-db`, `microtube-users-db`,`microtube-videos`, and `microtube-hf-cache`. They survive container recreation and `docker compose down`. 
 
 Files are stored as `/videos/<id>`; the database stores this ID in `hash` and the JSON metadata in `metadata`.
+
+## Documentation maintenance
+
+**Coding agents MUST keep `README.md` up to date.** Changes to documented
+functionality, APIs, setup, configuration, or deployment must include the
+necessary README updates in the same task. Describe implemented behavior
+accurately, distinguish plans from working features, and avoid unrelated rewrites.

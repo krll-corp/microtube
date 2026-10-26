@@ -15,7 +15,7 @@ repository. Their essential context is recorded here so other contributors do no
 need access to a particular developer's Downloads folder.
 
 The documents describe plans and historical snapshots. Current implementation
-facts below were checked against the source on 2026-10-26. Inspect the relevant
+facts below were checked against the repository on 2026-10-27. Inspect the relevant
 code and `compose.yaml` before editing; the README and older reports can lag behind.
 Do not implement every item in a presentation simply because it appears there.
 
@@ -35,8 +35,9 @@ The intended MVP includes:
 - Natural-language search and top-k recommendations ranked by content similarity.
   Encode queries and searchable content compatibly and use cosine similarity.
   Exclude the currently watched video from its own recommendations.
-- A simple interface guided by `assets/main-page.png` and `assets/video-page.png`.
-  Implement only the view and interactions agreed for the current task.
+- A coherent interface defined by the visual rules below and the reference renders
+  `assets/main-page.png` and `assets/video-page.png`. Do not mistake mockups for
+  proof of implemented functionality.
 
 Discovery initially uses content similarity. Watch-history personalization,
 comments, subscriptions, and federation are outside the current MVP.
@@ -85,6 +86,77 @@ configuration when relevant. Each service has its own lowercase `dockerfile`.
 `README.md` describes startup. `assets/` contains the agreed visual references.
 Keep service names and folders ordered from general to specific, for example
 `backend-ai-video` and `backend/ai/video`.
+
+## Visual design system (all frontends)
+
+`assets/main-page.png` and `assets/video-page.png` are the primary visual source
+of truth. The direction is inspired by the tiny corp / tinygrad web aesthetic:
+minimal, technical, utilitarian, deliberately unpolished rather than generic
+startup SaaS. Adapt that attitude to MicroTube; do not copy another company's
+branding. The rules below also stand alone when an agent cannot open the renders.
+
+- **Typography is the signature.** Use a crisp, blocky, pixel/bitmap-style
+  monospaced face for the `microtube` wordmark, headings, navigation, labels,
+  video names, timestamps, and interface copy. Its stepped, square glyph outlines
+  are intentional, not a retro arcade illustration. The original font family is
+  not established by the PNGs: inspect available font assets and license before
+  choosing one. It **must** support Ukrainian Cyrillic (including і, ї, є, ґ).
+  If unavailable, use a readable monospaced fallback, never unreadable tofu glyphs.
+  Do not blur, stretch, fake pixelation with `image-rendering`, or rasterize text.
+- **Light theme is the reference.** White/off-white canvas; near-black copy,
+  outlines, and separators; neutral gray secondary text; a restrained orange
+  accent (approximately `#F36B10`) for active items, focus, or small highlights.
+  No colorful gradients, glassmorphism, shadows, pastel cards, or decorative
+  ornaments. Use color as a signal, not to fill empty space.
+- **Geometry is square and direct.** Thin, high-contrast horizontal rules;
+  rectangular input outlines; simple underlined links/tags; almost no border
+  radius. Avoid round avatar badges, rounded pill tabs, bulky buttons, arbitrary
+  panels, marketing hero sections, and explanatory copy that the task did not ask
+  for. Generous whitespace should come from padding and clear alignment.
+- **Header:** oversized lowercase pixel-style `microtube` at left, a prominent
+  plain rectangular search field near the center, simple underlined upload
+  action at right. A horizontal divider distinguishes navigation/content. The
+  primary category row uses text links, not filled chips. Active tab: orange
+  text and a short orange underline; inactive links remain dark and underlined.
+- **Home view:** content-first video catalog. Desktop uses three aligned columns
+  of large landscape photographic thumbnails with consistent cropping, minimal
+  gaps, a small black duration rectangle at the thumbnail's bottom-right, and a
+  short pixel-font title below. Do not replace images with emoji, gradients,
+  synthetic cover art, author cards, or a large hero. Use real thumbnail data
+  when available; show a clearly identified simple fallback if not.
+- **Watch view:** one large video player on the left and a narrower right column
+  headed `Схожі відео`. Show related landscape thumbnails with duration stamps,
+  titles and simple divider lines. Beneath the player: a conspicuous pixel-font
+  video title followed by underlined `#tags`; description appears if data exists.
+  Prefer native accessible `<video controls>`; the rendered control bar is a
+  visual reference, not permission to build a fragile custom player.
+- **Responsiveness:** preserve the hierarchy rather than screenshot coordinates.
+  Header can wrap; home cards become two then one column; watch sidebar moves
+  underneath the player. No horizontal overflow. Maintain readable text,
+  keyboard focus, adequate hit areas, meaningful labels and contrast.
+- **Apply consistently** to `frontend/main/`, `frontend/upload/`, `frontend/auth/`
+  and `frontend/monitor/` when those views are in scope. They should share
+  typography, color, border, link, and spacing conventions; do not independently
+  redesign each service. Keep static HTML/CSS/JS unless a task requires more.
+
+### Theme planning, not an implicit feature request
+
+Light mode is the current acceptance target. Structure future CSS around semantic
+custom properties (`--bg`, `--text`, `--muted`, `--surface`, `--border`,
+`--accent`, `--focus`, `--player-bg`) rather than scattered hardcoded colors.
+Reserve a dark palette for a later task: charcoal/near-black canvas, light text,
+subtle dark surfaces, visible gray/light rules, and a legible orange accent.
+Both themes must retain the same grid, pixel type, square geometry, real media,
+and high-contrast duration labels. When implementing theme switching, consider
+`prefers-color-scheme`, an explicit user override and persistence, plus native
+control colors. Do not implement a toggle, automatic switching, or additional
+JavaScript solely because a frontend task mentions styling.
+
+Screenshots are *design targets*, not current app screenshots. Visually compare
+changed pages against both PNGs at desktop and narrow widths; explain deliberate
+deviations. The present `frontend/main/` hero, emoji thumbnails, rounded pills,
+Arial lettering, gradients and avatars are implementation drift, not new design
+precedent. Do not treat them as authorization to continue that visual language.
 
 ## Current contracts and data flow
 
@@ -222,6 +294,28 @@ docker compose up -d --build --wait --wait-timeout 3600
 The upload command also starts its declared dependencies. AI services can take
 minutes and substantial RAM/disk space to initialize; start them only when needed.
 
+## README and documentation synchronization
+
+`README.md` is the public entry point and must describe the **running code**,
+not the aspirational slides. A change affecting exposed behavior, UI navigation,
+service layout, ports, API routes, setup, authentication, storage, configuration,
+monitoring or deployment must include a README review in the **same task**.
+Update affected commands, tables, screenshots and limitations when necessary.
+For a purely internal refactor, verify README accuracy; do not churn it if still
+correct. `AGENTS.md` carries contributor rules; README carries actionable user
+instructions and honest status. Do not blindly copy one into the other.
+
+Before declaring documentation current: inspect `compose.yaml`, `.env.example`,
+the relevant frontend HTML/CSS/JS and Nginx proxies, FastAPI routes, and actual
+schemas or Dockerfiles. Separate **implemented**, **partial/prototype**, and
+**planned**. Never call a demo filter semantic search, claim a proxy exists when
+it does not, or describe an AJAX upload UI as a plain HTML form. Prefer exact
+runnable commands. Keep passwords and tokens out of README. Confirm the image
+paths (`assets/main-page.png`, `assets/video-page.png`) still exist. Include
+known blockers and update the "verified against code" date only after review;
+do not assert end-to-end testing if it did not happen. Review README during final
+`git diff` checks and report whether it was updated or remains accurate.
+
 ## Verification and Git
 
 - Check the behavior affected by the change. For integration changes, exercise the
@@ -247,3 +341,9 @@ minutes and substantial RAM/disk space to initialize; start them only when neede
   not installed; review the actual diff before handing work back.
 - Coding agents must not stage or commit project changes, push, merge, or rewrite
   history without an explicit human instruction.
+
+  ## Documentation maintenance
+
+**Coding agents MUST keep `README.md` up to date.** Any changes to functionality, architecture, API contracts, dependencies, configuration, or deployment MUST be reflected in the README as part of the same task.
+
+Documentation MUST describe the actual implementation, clearly distinguish implemented features from planned ones, and never claim unimplemented functionality is working.
