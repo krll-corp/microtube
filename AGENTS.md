@@ -102,8 +102,9 @@ The rules also stand alone when an agent cannot open the renders.
   monospaced face for the `microtube` wordmark, headings, navigation, labels,
   video names, timestamps, and interface copy. Its stepped, square glyph outlines
   are intentional, not a retro arcade illustration. The original font family is
-  not established by the PNGs: inspect available font assets and license before
-  choosing one. It **must** support Ukrainian Cyrillic (including і, ї, є, ґ).
+  not established by the PNGs. The current implementation uses local Tiny5 in
+  `frontend/shared/fonts/`, with its SIL Open Font License. Preserve Ukrainian
+  Cyrillic support (including і, ї, є, ґ) when choosing a replacement.
   If unavailable, use a readable monospaced fallback, never unreadable tofu glyphs.
   Do not blur, stretch, fake pixelation with `image-rendering`, or rasterize text.
 - **Light theme is the reference.** White/off-white canvas; near-black copy,
@@ -141,6 +142,10 @@ The rules also stand alone when an agent cannot open the renders.
   and `frontend/monitor/` when those views are in scope. They should share
   typography, color, border, link, and spacing conventions; do not independently
   redesign each service. Keep static HTML/CSS/JS unless a task requires more.
+- **Interface language:** English across all four frontends, including errors,
+  accessibility labels and demo content. The reference renders have Ukrainian
+  copy; translate those labels (for example, `Related videos`). Preserve uploaded
+  titles, descriptions and tags in their original language.
 - **CSS location:** `frontend/shared/base.css` contains common rules; the sibling
   `main.css`, `auth.css`, `upload.css`, and `monitor.css` hold page-specific rules.
   Load the base first. All frontends serve this one directory at `/shared/` through
@@ -161,9 +166,8 @@ JavaScript solely because a frontend task mentions styling.
 
 Screenshots are *design targets*, not current app screenshots. Visually compare
 changed pages against both PNGs at desktop and narrow widths; explain deliberate
-deviations. The present `frontend/main/` hero, emoji thumbnails, rounded pills,
-Arial lettering, gradients and avatars are implementation drift, not new design
-precedent. Do not treat them as authorization to continue that visual language.
+deviations. Hero sections, emoji thumbnails, rounded pills, Arial lettering,
+gradients and avatars from older implementations are not design precedent.
 
 ## Current contracts and data flow
 
@@ -226,8 +230,10 @@ precedent. Do not treat them as authorization to continue that visual language.
   still returns a placeholder. Stored-vector ranking and related-video lookup
   are MVP targets, not implemented backend behavior.
 - Main-page demo cards and client-side filtering do not prove database integration.
-  Its player requests `/api/video/videos`, while its current Dockerfile supplies
-  no proxy for that path. Verify routing before claiming working playback there.
+  Demo photos are CSS crops of the supplied renders, mounted read-only at
+  `/assets/`; demo watch pages show a labeled still. Real watch pages use native
+  video controls and `/api/video/videos`, proxied by `frontend/main/nginx.conf`
+  to `backend-video:3030/videos`. Related cards are still demo data.
 - Server-side media validation is incomplete; HTML `accept="video/mp4"` only
   affects the file picker. Treat UI placeholders and historical reports accordingly.
 

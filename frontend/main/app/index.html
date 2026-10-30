@@ -1,57 +1,34 @@
 <!doctype html>
-<html lang="uk">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#fbf8f2">
-    <meta name="description" content="MicroTube — відеохостинг для перегляду та публікації відео">
-    <title>MicroTube — відеохостинг</title>
+    <meta name="theme-color" content="#ffffff">
+    <meta name="description" content="MicroTube — watch and publish videos">
+    <title>MicroTube</title>
     <link rel="stylesheet" href="/shared/base.css">
     <link rel="stylesheet" href="/shared/main.css">
-    <script defer src="/app.js"></script>
+    <script defer src="/app.js?v=2"></script>
 </head>
 <body>
     <div class="site-shell">
-        <header class="topbar">
-            <a class="brand" href="/">
-                <span class="brand-mark">m</span>
-                <span>microtube</span>
-            </a>
-
-            <form class="search-form" id="search-form">
-                <span aria-hidden="true">⌕</span>
-                <input
-                    id="global-search"
-                    type="search"
-                    placeholder="Пошук відео"
-                    aria-label="Пошук відео"
-                >
-                <button type="submit">Знайти</button>
+        <header class="site-header">
+            <a class="brand" href="/" aria-label="MicroTube — home">microtube</a>
+            <form class="search-form" id="search-form" role="search">
+                <button type="submit" aria-label="Find videos">
+                    <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></svg>
+                </button>
+                <input id="global-search" name="search" type="search" placeholder="Search videos" aria-label="Search videos">
             </form>
-
-            <nav class="top-actions">
-                <a class="upload-link" id="upload-link"
-                   href="http://localhost:8082/">
-                    + Завантажити
-                </a>
-                <a class="account-link" id="account-link"
-                   href="http://localhost:8083/">
-                    Увійти
-                </a>
+            <nav class="header-actions" aria-label="Account">
+                <a id="upload-link" href="http://localhost:8082/">Upload</a>
+                <a id="account-link" href="http://localhost:8083/">Account</a>
             </nav>
         </header>
-
-        <main id="app-main">
-            <p>Завантаження MicroTube...</p>
-        </main>
-
-        <footer class="site-footer">
-            <a class="brand" href="/">
-                <span class="brand-mark">m</span>
-                <span>microtube</span>
-            </a>
-            <span>Місце, де відео знаходять свою аудиторію.</span>
-            <a href="http://localhost:8081/">Стан системи</a>
+        <main id="app-main"><p>Loading…</p></main>
+        <footer class="catalog-footer">
+            <span>Demo catalog · local search</span>
+            <a id="status-link" href="http://localhost:8081/">System status</a>
         </footer>
     </div>
 </body>

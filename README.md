@@ -10,9 +10,13 @@ The [home](assets/main-page.png) and [watch-page](assets/video-page.png) renders
 are design targets. The agreed direction combines pixel-style monospaced type,
 square outlines, a white canvas, dark text and a restrained orange accent, with
 [tiny corp](https://tinygrad.org/) as an inspiration for technical minimalism.
-Current frontend styles have not yet been converted to this target; dark mode
-is planned. See the [design rules](AGENTS.md#visual-design-system-all-frontends)
+All four frontends now share this light style; dark mode is planned.
+See the [design rules](AGENTS.md#visual-design-system-all-frontends)
 for the full specification and theme planning.
+Interface copy and demo content are in English; uploaded titles, descriptions
+and tags are displayed as entered. The original renders use Ukrainian labels.
+Current UI screenshots: [home](docs/screenshots/home.jpg),
+[watch](docs/screenshots/watch.jpg), [mobile watch](docs/screenshots/watch-mobile.jpg).
 
 ## Current limitations
 
@@ -21,16 +25,17 @@ Implementation and configuration reviewed against repository source on 2026-10-3
 - The main frontend uses demo videos and local filtering. It does not load a
   catalog or related-video results from PostgreSQL; watch-page metadata is taken
   from URL parameters or placeholders.
-- Its player requests `/api/video/videos`, but `frontend/main/dockerfile` does not
-  install a proxy for that route. The upload UI's watch link therefore does not
-  provide working playback yet. The direct streaming endpoint remains
-  `http://127.0.0.1:3030/videos?id=<id>`.
+- Demo cards show still images, not playable videos. Their photographs are CSS
+  crops of the supplied renders, served from the read-only `assets/` mount.
+  Uploaded videos use native `<video controls>`; the main frontend proxies
+  `/api/video/videos?id=<id>` to `backend-video:3030/videos?id=<id>`.
 - `GET /search?req=<text>` computes a query embedding and returns a placeholder,
   not ranked results. Indexing currently embeds the video and each tag; title
   and description are stored but do not yet have text embeddings.
-- Some navigation links hardcode `localhost` and ports `8080`-`8083`. Changing
-  Compose port settings does not rewrite those links. Use the same hostname for
-  login and upload so the browser sends the session cookie to both services.
+- Navigation links preserve the current hostname but use default frontend ports
+  `8080`-`8083`. Changing Compose port settings does not rewrite those links.
+  Use the same hostname for login and upload so the browser sends the session
+  cookie to both services.
 - The monitor probes HTTP availability every 30 seconds and stores its history
   in browser local storage. It does not check PostgreSQL or the indexing worker,
   and is not a metrics platform or proof that complete user flows work.
@@ -64,6 +69,24 @@ loads the base first, then its own file. Compose mounts this directory read-only
 at `/usr/share/nginx/html/shared` in all four frontends, served as `/shared/`.
 CSS edits need a browser reload, without rebuilding an image. Run frontends with
 Compose so the mount is present; standalone images do not contain these styles.
+
+The shared directory also serves the local Tiny5 pixel font, including Ukrainian
+Cyrillic. `fonts/Tiny5.woff2` is a static webfont built from
+[Google Fonts' Tiny5 source](https://github.com/google/fonts/tree/main/ofl/tiny5)
+at its default axes; the SIL Open Font License is included in `fonts/OFL.txt`.
+The UI does not request fonts or demo images from third-party servers.
+
+To preview just the UI without starting the AI models:
+
+```bash
+docker compose up -d --build --no-deps frontend-main frontend-upload frontend-auth frontend-monitor
+```
+
+Login, uploads and real playback also need their backend services:
+
+```bash
+docker compose up -d --build backend-auth backend-upload backend-video
+```
 
 Addresses below use the default ports from `.env.example`.
 
