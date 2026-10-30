@@ -6,9 +6,34 @@ A YouTube clone without the bloatware | student project
 ---
 ![main page render](assets/main-page.png)
 
-The renders in `assets/main-page.png` and `assets/video-page.png` are design
-references, not current application screenshots. See `AGENTS.md` for the pixel-style
-design direction and future dark-theme considerations.
+The [home](assets/main-page.png) and [watch-page](assets/video-page.png) renders
+are design targets. The agreed direction combines pixel-style monospaced type,
+square outlines, a white canvas, dark text and a restrained orange accent, with
+[tiny corp](https://tinygrad.org/) as an inspiration for technical minimalism.
+Current frontend styles have not yet been converted to this target; dark mode
+is planned. See the [design rules](AGENTS.md#visual-design-system-all-frontends)
+for the full specification and theme planning.
+
+## Current limitations
+
+Implementation and configuration reviewed against repository source on 2026-10-30.
+
+- The main frontend uses demo videos and local filtering. It does not load a
+  catalog or related-video results from PostgreSQL; watch-page metadata is taken
+  from URL parameters or placeholders.
+- Its player requests `/api/video/videos`, but `frontend/main/dockerfile` does not
+  install a proxy for that route. The upload UI's watch link therefore does not
+  provide working playback yet. The direct streaming endpoint remains
+  `http://127.0.0.1:3030/videos?id=<id>`.
+- `GET /search?req=<text>` computes a query embedding and returns a placeholder,
+  not ranked results. Indexing currently embeds the video and each tag; title
+  and description are stored but do not yet have text embeddings.
+- Some navigation links hardcode `localhost` and ports `8080`-`8083`. Changing
+  Compose port settings does not rewrite those links. Use the same hostname for
+  login and upload so the browser sends the session cookie to both services.
+- The monitor probes HTTP availability every 30 seconds and stores its history
+  in browser local storage. It does not check PostgreSQL or the indexing worker,
+  and is not a metrics platform or proof that complete user flows work.
 
 ## Launch
 
@@ -24,7 +49,16 @@ docker compose up -d --build
 ```
 
 The first AI startup downloads the model; subsequent starts reuse its cache.
-To wait for startup checks, use `docker compose up -d --build --wait --wait-timeout 1200`.
+To wait for startup checks, use `docker compose up -d --build --wait --wait-timeout 3600`.
+
+Frontend HTML, CSS and JavaScript are copied into the images. After editing a
+frontend, rebuild and recreate that service; for example:
+
+```bash
+docker compose up -d --build --no-deps frontend-upload
+```
+
+Addresses below use the default ports from `.env.example`.
 
 | Service | Local address | Current role |
 | --- | --- | --- |

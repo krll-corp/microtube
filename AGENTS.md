@@ -15,7 +15,7 @@ repository. Their essential context is recorded here so other contributors do no
 need access to a particular developer's Downloads folder.
 
 The documents describe plans and historical snapshots. Current implementation
-facts below were checked against the repository on 2026-10-27. Inspect the relevant
+facts below were checked against the repository on 2026-10-30. Inspect the relevant
 code and `compose.yaml` before editing; the README and older reports can lag behind.
 Do not implement every item in a presentation simply because it appears there.
 
@@ -90,10 +90,11 @@ Keep service names and folders ordered from general to specific, for example
 ## Visual design system (all frontends)
 
 `assets/main-page.png` and `assets/video-page.png` are the primary visual source
-of truth. The direction is inspired by the tiny corp / tinygrad web aesthetic:
-minimal, technical, utilitarian, deliberately unpolished rather than generic
-startup SaaS. Adapt that attitude to MicroTube; do not copy another company's
-branding. The rules below also stand alone when an agent cannot open the renders.
+of truth. Use [tiny corp / tinygrad](https://tinygrad.org/) as a reference for
+technical minimalism: plain typography, direct navigation, restrained color,
+and content-first layouts. The MicroTube renders and rules below take precedence
+if that external website changes. Adapt the approach without copying its branding.
+The rules also stand alone when an agent cannot open the renders.
 
 - **Typography is the signature.** Use a crisp, blocky, pixel/bitmap-style
   monospaced face for the `microtube` wordmark, headings, navigation, labels,
@@ -296,10 +297,11 @@ minutes and substantial RAM/disk space to initialize; start them only when neede
 
 ## README and documentation synchronization
 
-`README.md` is the public entry point and must describe the **running code**,
-not the aspirational slides. A change affecting exposed behavior, UI navigation,
-service layout, ports, API routes, setup, authentication, storage, configuration,
-monitoring or deployment must include a README review in the **same task**.
+`README.md` is the public entry point. **Coding agents must keep it up to date
+in the same task.** It describes the actual implementation, with plans labeled
+as plans. A change affecting exposed behavior, UI navigation, service layout,
+ports, API routes, dependencies, setup, authentication, storage, configuration,
+monitoring or deployment must include a README review.
 Update affected commands, tables, screenshots and limitations when necessary.
 For a purely internal refactor, verify README accuracy; do not churn it if still
 correct. `AGENTS.md` carries contributor rules; README carries actionable user
@@ -341,9 +343,3 @@ do not assert end-to-end testing if it did not happen. Review README during fina
   not installed; review the actual diff before handing work back.
 - Coding agents must not stage or commit project changes, push, merge, or rewrite
   history without an explicit human instruction.
-
-  ## Documentation maintenance
-
-**Coding agents MUST keep `README.md` up to date.** Any changes to functionality, architecture, API contracts, dependencies, configuration, or deployment MUST be reflected in the README as part of the same task.
-
-Documentation MUST describe the actual implementation, clearly distinguish implemented features from planned ones, and never claim unimplemented functionality is working.
