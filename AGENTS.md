@@ -70,7 +70,7 @@ Nginx configuration when relevant. Each service has its own lowercase `dockerfil
 | `frontend/monitor/` | HTTP availability probes through `nginx.conf` | 8081 |
 | `frontend/upload/` | Creator upload UI; `/api/upload/` Nginx proxy | 8082 |
 | `frontend/auth/` | Login/registration UI and browser credential hashing | 8083 |
-| `frontend/shared/` | Shared CSS foundation and page-specific styles | Mounted in all frontends |
+| `frontend/shared/` | Shared CSS, font and theme preference script | Mounted in all frontends |
 | `backend/video/` | Public streaming and bounded RAM cache | 3030 |
 | `backend/text/` | Authenticated search skeleton | 3031 |
 | `backend/upload/` | Authenticated upload, file storage, metadata insertion | 3032 |
@@ -151,18 +151,20 @@ The rules also stand alone when an agent cannot open the renders.
   Load the base first. All frontends serve this one directory at `/shared/` through
   a read-only bind mount; keep CSS out of individual `app/` directories and images.
 
-### Theme planning, not an implicit feature request
+### Themes
 
-Light mode is the current acceptance target. Structure future CSS around semantic
+Light mode remains the render reference. Structure CSS around semantic
 custom properties (`--bg`, `--text`, `--muted`, `--surface`, `--border`,
 `--accent`, `--focus`, `--player-bg`) rather than scattered hardcoded colors.
-Reserve a dark palette for a later task: charcoal/near-black canvas, light text,
+The dark palette uses a charcoal/near-black canvas, light text,
 subtle dark surfaces, visible gray/light rules, and a legible orange accent.
 Both themes must retain the same grid, pixel type, square geometry, real media,
-and high-contrast duration labels. When implementing theme switching, consider
-`prefers-color-scheme`, an explicit user override and persistence, plus native
-control colors. Do not implement a toggle, automatic switching, or additional
-JavaScript solely because a frontend task mentions styling.
+and high-contrast duration labels. `frontend/shared/theme.js` follows
+`prefers-color-scheme` by default. Each header offers a split-circle light/dark
+toggle and an Auto button to restore the system preference;
+the non-auth `microtube_theme` cookie shares the override across frontend ports
+on the same hostname. Keep this script before the stylesheets to avoid a light
+flash, and preserve native control colors through `color-scheme`.
 
 Screenshots are *design targets*, not current app screenshots. Visually compare
 changed pages against both PNGs at desktop and narrow widths; explain deliberate
@@ -292,8 +294,8 @@ gradients and avatars from older implementations are not design precedent.
   need an explicit migration; rebuilding an image does not apply schema changes.
 - Rebuilding an image alone does not update a running container. Use Compose to
   recreate the affected service. Restart consumers after changing shared Python code.
-- Shared CSS changes are visible through the frontend mount without rebuilding
-  images. Reload the browser; HTML/JS changes still require rebuilding the service.
+- Shared CSS/JS changes are visible through the frontend mount without rebuilding
+  images. Reload the browser; HTML and page-local JS changes still require a rebuild.
 
 Useful commands, run from the repository root:
 

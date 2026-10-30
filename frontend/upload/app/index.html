@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#ffffff">
     <title>Upload a video — MicroTube</title>
-    <link rel="stylesheet" href="/shared/base.css">
+    <script src="/shared/theme.js?v=2"></script>
+    <link rel="stylesheet" href="/shared/base.css?v=4">
     <link rel="stylesheet" href="/shared/upload.css">
 </head>
 <body>
@@ -16,6 +17,15 @@
             <a href="/" data-port="8080">Home</a>
             <a href="/" data-port="8083">Account</a>
             <a href="/" data-port="8081">System status</a>
+            <div class="theme-control">
+                <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Dark theme" aria-pressed="false">
+                    <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M12 3a9 9 0 0 0 0 18Z" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button id="theme-auto" class="theme-auto" type="button" aria-label="Use system theme" aria-pressed="true">Auto</button>
+            </div>
         </nav>
     </header>
     <main class="upload-main">

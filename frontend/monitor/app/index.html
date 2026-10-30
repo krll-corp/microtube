@@ -6,7 +6,8 @@
     <meta name="theme-color" content="#ffffff">
     <title>System status — MicroTube</title>
 
-    <link rel="stylesheet" href="/shared/base.css">
+    <script src="/shared/theme.js?v=2"></script>
+    <link rel="stylesheet" href="/shared/base.css?v=4">
     <link rel="stylesheet" href="/shared/monitor.css">
 </head>
 
@@ -17,6 +18,15 @@
         <nav class="header-actions" aria-label="Navigation">
             <a href="/" data-port="8080">Home</a>
             <a href="/" data-port="8082">Upload</a>
+            <div class="theme-control">
+                <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Dark theme" aria-pressed="false">
+                    <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M12 3a9 9 0 0 0 0 18Z" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button id="theme-auto" class="theme-auto" type="button" aria-label="Use system theme" aria-pressed="true">Auto</button>
+            </div>
         </nav>
     </header>
 

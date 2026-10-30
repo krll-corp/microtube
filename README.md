@@ -10,13 +10,17 @@ The [home](assets/main-page.png) and [watch-page](assets/video-page.png) renders
 are design targets. The agreed direction combines pixel-style monospaced type,
 square outlines, a white canvas, dark text and a restrained orange accent, with
 [tiny corp](https://tinygrad.org/) as an inspiration for technical minimalism.
-All four frontends now share this light style; dark mode is planned.
+All four frontends share this style in light and dark palettes.
 See the [design rules](AGENTS.md#visual-design-system-all-frontends)
-for the full specification and theme planning.
+for the full specification.
+The header's split-circle button switches between light and dark; Auto follows
+the system (the default). A `microtube_theme` preference cookie shares that choice
+across frontend ports on the same hostname; it contains no authentication data.
 Interface copy and demo content are in English; uploaded titles, descriptions
 and tags are displayed as entered. The original renders use Ukrainian labels.
-Current UI screenshots: [home](docs/screenshots/home.jpg),
+Light UI previews: [home](docs/screenshots/home.jpg),
 [watch](docs/screenshots/watch.jpg), [mobile watch](docs/screenshots/watch-mobile.jpg).
+Dark UI preview: [home and search focus](docs/screenshots/home-dark.jpg).
 
 ## Current limitations
 
@@ -67,8 +71,10 @@ All CSS lives in `frontend/shared/`: `base.css` holds common rules, and `main.cs
 `auth.css`, `upload.css`, and `monitor.css` contain page-specific rules. Each page
 loads the base first, then its own file. Compose mounts this directory read-only
 at `/usr/share/nginx/html/shared` in all four frontends, served as `/shared/`.
-CSS edits need a browser reload, without rebuilding an image. Run frontends with
-Compose so the mount is present; standalone images do not contain these styles.
+The shared `theme.js` applies the palette before rendering and handles the controls.
+Shared CSS/JS edits need a browser reload, without rebuilding an image. Run
+frontends with Compose so the mount is present; standalone images do not contain
+these shared assets.
 
 The shared directory also serves the local Tiny5 pixel font, including Ukrainian
 Cyrillic. `fonts/Tiny5.woff2` is a static webfont built from
