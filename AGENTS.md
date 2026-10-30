@@ -70,7 +70,7 @@ Nginx configuration when relevant. Each service has its own lowercase `dockerfil
 | `frontend/monitor/` | HTTP availability probes through `nginx.conf` | 8081 |
 | `frontend/upload/` | Creator upload UI; `/api/upload/` Nginx proxy | 8082 |
 | `frontend/auth/` | Login/registration UI and browser credential hashing | 8083 |
-| `frontend/shared/` | Shared CSS foundation and page-specific styles | Mounted in all frontends |
+| `frontend/shared/` | Shared CSS, font and theme preference script | Mounted in all frontends |
 | `backend/video/` | Public streaming and bounded RAM cache | 3030 |
 | `backend/text/` | Authenticated search skeleton | 3031 |
 | `backend/upload/` | Authenticated upload, file storage, metadata insertion | 3032 |
@@ -102,8 +102,9 @@ The rules also stand alone when an agent cannot open the renders.
   monospaced face for the `microtube` wordmark, headings, navigation, labels,
   video names, timestamps, and interface copy. Its stepped, square glyph outlines
   are intentional, not a retro arcade illustration. The original font family is
-  not established by the PNGs: inspect available font assets and license before
-  choosing one. It **must** support Ukrainian Cyrillic (including і, ї, є, ґ).
+  not established by the PNGs. The current implementation uses local Tiny5 in
+  `frontend/shared/fonts/`, with its SIL Open Font License. Preserve Ukrainian
+  Cyrillic support (including і, ї, є, ґ) when choosing a replacement.
   If unavailable, use a readable monospaced fallback, never unreadable tofu glyphs.
   Do not blur, stretch, fake pixelation with `image-rendering`, or rasterize text.
 - **Light theme is the reference.** White/off-white canvas; near-black copy,
@@ -141,29 +142,34 @@ The rules also stand alone when an agent cannot open the renders.
   and `frontend/monitor/` when those views are in scope. They should share
   typography, color, border, link, and spacing conventions; do not independently
   redesign each service. Keep static HTML/CSS/JS unless a task requires more.
+- **Interface language:** English across all four frontends, including errors,
+  accessibility labels and demo content. The reference renders have Ukrainian
+  copy; translate those labels (for example, `Related videos`). Preserve uploaded
+  titles, descriptions and tags in their original language.
 - **CSS location:** `frontend/shared/base.css` contains common rules; the sibling
   `main.css`, `auth.css`, `upload.css`, and `monitor.css` hold page-specific rules.
   Load the base first. All frontends serve this one directory at `/shared/` through
   a read-only bind mount; keep CSS out of individual `app/` directories and images.
 
-### Theme planning, not an implicit feature request
+### Themes
 
-Light mode is the current acceptance target. Structure future CSS around semantic
+Light mode remains the render reference. Structure CSS around semantic
 custom properties (`--bg`, `--text`, `--muted`, `--surface`, `--border`,
 `--accent`, `--focus`, `--player-bg`) rather than scattered hardcoded colors.
-Reserve a dark palette for a later task: charcoal/near-black canvas, light text,
+The dark palette uses a charcoal/near-black canvas, light text,
 subtle dark surfaces, visible gray/light rules, and a legible orange accent.
 Both themes must retain the same grid, pixel type, square geometry, real media,
-and high-contrast duration labels. When implementing theme switching, consider
-`prefers-color-scheme`, an explicit user override and persistence, plus native
-control colors. Do not implement a toggle, automatic switching, or additional
-JavaScript solely because a frontend task mentions styling.
+and high-contrast duration labels. `frontend/shared/theme.js` follows
+`prefers-color-scheme` by default. Each header offers a split-circle light/dark
+toggle and an Auto button to restore the system preference;
+the non-auth `microtube_theme` cookie shares the override across frontend ports
+on the same hostname. Keep this script before the stylesheets to avoid a light
+flash, and preserve native control colors through `color-scheme`.
 
 Screenshots are *design targets*, not current app screenshots. Visually compare
 changed pages against both PNGs at desktop and narrow widths; explain deliberate
-deviations. The present `frontend/main/` hero, emoji thumbnails, rounded pills,
-Arial lettering, gradients and avatars are implementation drift, not new design
-precedent. Do not treat them as authorization to continue that visual language.
+deviations. Hero sections, emoji thumbnails, rounded pills, Arial lettering,
+gradients and avatars from older implementations are not design precedent.
 
 ## Current contracts and data flow
 
@@ -226,8 +232,10 @@ precedent. Do not treat them as authorization to continue that visual language.
   still returns a placeholder. Stored-vector ranking and related-video lookup
   are MVP targets, not implemented backend behavior.
 - Main-page demo cards and client-side filtering do not prove database integration.
-  Its player requests `/api/video/videos`, while its current Dockerfile supplies
-  no proxy for that path. Verify routing before claiming working playback there.
+  Demo photos are CSS crops of the supplied renders, mounted read-only at
+  `/assets/`; demo watch pages show a labeled still. Real watch pages use native
+  video controls and `/api/video/videos`, proxied by `frontend/main/nginx.conf`
+  to `backend-video:3030/videos`. Related cards are still demo data.
 - Server-side media validation is incomplete; HTML `accept="video/mp4"` only
   affects the file picker. Treat UI placeholders and historical reports accordingly.
 
@@ -286,8 +294,8 @@ precedent. Do not treat them as authorization to continue that visual language.
   need an explicit migration; rebuilding an image does not apply schema changes.
 - Rebuilding an image alone does not update a running container. Use Compose to
   recreate the affected service. Restart consumers after changing shared Python code.
-- Shared CSS changes are visible through the frontend mount without rebuilding
-  images. Reload the browser; HTML/JS changes still require rebuilding the service.
+- Shared CSS/JS changes are visible through the frontend mount without rebuilding
+  images. Reload the browser; HTML and page-local JS changes still require a rebuild.
 
 Useful commands, run from the repository root:
 

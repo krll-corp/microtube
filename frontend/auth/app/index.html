@@ -1,70 +1,56 @@
 <!DOCTYPE html>
-<html lang="uk">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#f8f6f1">
-    <title>MicroTube — Автентифікація</title>
+    <meta name="theme-color" content="#ffffff">
+    <title>MicroTube — Authentication</title>
 
-    <link rel="stylesheet" href="/shared/base.css">
+    <script src="/shared/theme.js?v=2"></script>
+    <link rel="stylesheet" href="/shared/base.css?v=4">
     <link rel="stylesheet" href="/shared/auth.css">
 </head>
 
 <body>
-    <main class="auth-card">
-        <section class="welcome-panel">
-            <div class="brand">
-                <span class="brand-icon">m</span>
-                <span>microtube</span>
-            </div>
-
-            <div class="welcome-content">
-                <div class="eyebrow">Твій простір для відео</div>
-
-                <h1>Історії, якими хочеться ділитися.</h1>
-
-                <p>
-                    Увійди до свого акаунту або створи новий,
-                    щоб відкривати цікаві відео та публікувати власні.
-                </p>
-            </div>
-
-            <div class="welcome-footer">
-                MicroTube · Відеохостинг
-            </div>
-
-            <div class="art" aria-hidden="true"></div>
-        </section>
-
-        <section class="form-panel">
-            <div class="eyebrow">Ласкаво просимо</div>
-
-            <h2>Почнімо!</h2>
-
-            <p class="form-description">
-                Введи свої дані, щоб увійти або зареєструватися.
-            </p>
-
+    <div class="site-shell">
+        <header class="site-header">
+            <a class="brand" href="/" data-port="8080">microtube</a>
+            <nav class="header-actions" aria-label="Navigation">
+                <a href="/" data-port="8080">Home</a>
+                <a href="/" data-port="8082">Upload</a>
+                <div class="theme-control">
+                    <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Dark theme" aria-pressed="false">
+                        <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                            <path d="M12 3a9 9 0 0 0 0 18Z" fill="currentColor"/>
+                        </svg>
+                    </button>
+                    <button id="theme-auto" class="theme-auto" type="button" aria-label="Use system theme" aria-pressed="true">Auto</button>
+                </div>
+            </nav>
+        </header>
+        <main class="auth-page">
+            <h1>Sign in / register</h1>
             <form method="post">
                 <div class="field">
-                    <label for="login">Логін</label>
+                    <label for="login">Username</label>
 
                     <input
                         id="login"
                         autocomplete="username"
-                        placeholder="Введи свій логін"
+                        placeholder="Enter your username"
                         required
                     >
                 </div>
 
                 <div class="field">
-                    <label for="password">Пароль</label>
+                    <label for="password">Password</label>
 
                     <input
                         id="password"
                         type="password"
                         autocomplete="current-password"
-                        placeholder="Щонайменше 8 символів"
+                        placeholder="At least 8 characters"
                         minlength="8"
                         required
                     >
@@ -75,29 +61,32 @@
 
                 <div class="button-row">
                     <button
-                        class="login-button"
+                        class="button button-primary"
                         type="submit"
                         value="login">
-                        Увійти
+                        Sign in
                     </button>
 
                     <button
-                        class="register-button"
+                        class="button"
                         type="submit"
                         value="register">
-                        Реєстрація
+                        Register
                     </button>
                 </div>
             </form>
 
-            <p class="security-note">
-                Твої облікові дані хешуються перед надсиланням
-                до сервісу автентифікації.
-            </p>
-        </section>
-    </main>
+            <p id="auth-message" role="alert" hidden></p>
+        </main>
+    </div>
 
     <script>
+        document.querySelectorAll("[data-port]").forEach(link => {
+            const target = new URL("/", location.href);
+            target.port = link.dataset.port;
+            link.href = target.href;
+        });
+
         async function hash(value) {
             const first = await crypto.subtle.digest(
                 "SHA-256",
@@ -118,7 +107,9 @@
             event.preventDefault();
 
             if (!globalThis.crypto?.subtle) {
-                alert("Hashing requires HTTPS or localhost.");
+                const message = document.getElementById("auth-message");
+                message.textContent = "Sign in requires HTTPS or localhost.";
+                message.hidden = false;
                 return;
             }
 
