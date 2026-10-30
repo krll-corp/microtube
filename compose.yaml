@@ -5,6 +5,8 @@ services:
     build:
       context: ./frontend/main
       dockerfile: dockerfile
+    volumes:
+      - ./frontend/shared:/usr/share/nginx/html/shared:ro
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${FRONTEND_PORT:-8080}:80"
     restart: unless-stopped
@@ -20,6 +22,8 @@ services:
       dockerfile: dockerfile
     environment:
       UPLOAD_API_PORT: ${UPLOAD_API_PORT:-3032}
+    volumes:
+      - ./frontend/shared:/usr/share/nginx/html/shared:ro
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${UPLOAD_PORT:-8082}:80"
     restart: unless-stopped
@@ -33,6 +37,8 @@ services:
     build:
       context: ./frontend/monitor
       dockerfile: dockerfile
+    volumes:
+      - ./frontend/shared:/usr/share/nginx/html/shared:ro
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${MONITOR_PORT:-8081}:80"
     restart: unless-stopped
@@ -48,6 +54,8 @@ services:
       dockerfile: dockerfile
     environment:
       AUTH_API_PORT: ${AUTH_API_PORT:-3033}
+    volumes:
+      - ./frontend/shared:/usr/share/nginx/html/shared:ro
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${AUTH_PORT:-8083}:80"
     restart: unless-stopped

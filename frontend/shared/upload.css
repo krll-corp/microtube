@@ -4,36 +4,9 @@
     --text: #262723;
     --muted: #777970;
     --line: #e7e5df;
-    --accent: #d77b48;
     --soft: #f0ece5;
     --green: #287749;
     --red: #a83d35;
-}
-
-* {
-    box-sizing: border-box;
-}
-
-body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: Arial, Helvetica, sans-serif;
-}
-
-a {
-    color: inherit;
-    text-decoration: none;
-}
-
-button,
-input,
-textarea {
-    font: inherit;
-}
-
-button {
-    cursor: pointer;
 }
 
 .shell {
@@ -44,31 +17,15 @@ button {
 
 header {
     min-height: 78px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 20px;
-    border-bottom: 1px solid var(--line);
 }
 
 .brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
     font-size: 23px;
-    font-weight: 800;
-    letter-spacing: -1px;
 }
 
 .brand-icon {
     width: 35px;
     height: 35px;
-    display: grid;
-    place-items: center;
-    border-radius: 10px;
-    background: var(--accent);
-    color: white;
-    font-size: 27px;
 }
 
 .nav {
@@ -90,10 +47,7 @@ main {
 
 .eyebrow {
     color: #b76539;
-    font-size: 11px;
-    font-weight: 800;
     letter-spacing: 1.8px;
-    text-transform: uppercase;
 }
 
 h1 {
@@ -239,10 +193,7 @@ h1 {
 }
 
 label {
-    display: block;
     margin-bottom: 8px;
-    font-size: 12px;
-    font-weight: 700;
 }
 
 input[type="text"],
@@ -367,13 +318,6 @@ progress {
     color: #656258;
     font-size: 12px;
     line-height: 1.8;
-}
-
-footer {
-    padding: 23px 0;
-    border-top: 1px solid var(--line);
-    color: var(--muted);
-    font-size: 11px;
 }
 
 [hidden] {

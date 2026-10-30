@@ -61,8 +61,8 @@ The proposed `microtube.local` address is a development idea, not a deployed dom
 ## Repository layout
 
 Python service entry points are `app/main.py` inside their service directory.
-Frontend entry points are `app/index.html`; inspect adjacent JS, CSS, and Nginx
-configuration when relevant. Each service has its own lowercase `dockerfile`.
+Frontend entry points are `app/index.html`; inspect adjacent JS, shared CSS, and
+Nginx configuration when relevant. Each service has its own lowercase `dockerfile`.
 
 | Path | Responsibility | Default host port |
 | --- | --- | --- |
@@ -70,6 +70,7 @@ configuration when relevant. Each service has its own lowercase `dockerfile`.
 | `frontend/monitor/` | HTTP availability probes through `nginx.conf` | 8081 |
 | `frontend/upload/` | Creator upload UI; `/api/upload/` Nginx proxy | 8082 |
 | `frontend/auth/` | Login/registration UI and browser credential hashing | 8083 |
+| `frontend/shared/` | Shared CSS foundation and page-specific styles | Mounted in all frontends |
 | `backend/video/` | Public streaming and bounded RAM cache | 3030 |
 | `backend/text/` | Authenticated search skeleton | 3031 |
 | `backend/upload/` | Authenticated upload, file storage, metadata insertion | 3032 |
@@ -140,6 +141,10 @@ The rules also stand alone when an agent cannot open the renders.
   and `frontend/monitor/` when those views are in scope. They should share
   typography, color, border, link, and spacing conventions; do not independently
   redesign each service. Keep static HTML/CSS/JS unless a task requires more.
+- **CSS location:** `frontend/shared/base.css` contains common rules; the sibling
+  `main.css`, `auth.css`, `upload.css`, and `monitor.css` hold page-specific rules.
+  Load the base first. All frontends serve this one directory at `/shared/` through
+  a read-only bind mount; keep CSS out of individual `app/` directories and images.
 
 ### Theme planning, not an implicit feature request
 
@@ -281,6 +286,8 @@ precedent. Do not treat them as authorization to continue that visual language.
   need an explicit migration; rebuilding an image does not apply schema changes.
 - Rebuilding an image alone does not update a running container. Use Compose to
   recreate the affected service. Restart consumers after changing shared Python code.
+- Shared CSS changes are visible through the frontend mount without rebuilding
+  images. Reload the browser; HTML/JS changes still require rebuilding the service.
 
 Useful commands, run from the repository root:
 

@@ -51,12 +51,19 @@ docker compose up -d --build
 The first AI startup downloads the model; subsequent starts reuse its cache.
 To wait for startup checks, use `docker compose up -d --build --wait --wait-timeout 3600`.
 
-Frontend HTML, CSS and JavaScript are copied into the images. After editing a
-frontend, rebuild and recreate that service; for example:
+Frontend HTML and JavaScript are copied into the images. After editing them,
+rebuild and recreate the affected service; for example:
 
 ```bash
 docker compose up -d --build --no-deps frontend-upload
 ```
+
+All CSS lives in `frontend/shared/`: `base.css` holds common rules, and `main.css`,
+`auth.css`, `upload.css`, and `monitor.css` contain page-specific rules. Each page
+loads the base first, then its own file. Compose mounts this directory read-only
+at `/usr/share/nginx/html/shared` in all four frontends, served as `/shared/`.
+CSS edits need a browser reload, without rebuilding an image. Run frontends with
+Compose so the mount is present; standalone images do not contain these styles.
 
 Addresses below use the default ports from `.env.example`.
 
