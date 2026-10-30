@@ -2,14 +2,13 @@ import os
 import re
 from collections import OrderedDict
 from contextlib import closing
-from pathlib import Path
 from threading import Lock
 
 import psycopg2
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, StreamingResponse
+from microtube_storage import find_video
 
-VIDEO_STORAGE_DIR = Path(os.getenv("VIDEO_STORAGE_DIR", "/videos")).resolve()
 CACHE_LIMIT = max(0, int(os.getenv("VIDEO_CACHE_MB", "64"))) * 1024 * 1024
 CHUNK_SIZE = 1024 * 1024
 cache = OrderedDict()
@@ -36,8 +35,8 @@ def load(request: Request, id: str | None = Query(default=None, pattern=r"^[A-Za
                 raise HTTPException(status_code=404, detail="Video not found")
 
 
-    path = (VIDEO_STORAGE_DIR / id).resolve()
-    if not path.is_relative_to(VIDEO_STORAGE_DIR) or not path.is_file():
+    path = find_video(id)
+    if path is None:
         raise HTTPException(status_code=404, detail="Video file not found")
     info = path.stat()
     response = FileResponse(path, media_type="video/mp4", headers={"X-Cache": "BYPASS"})

@@ -75,6 +75,7 @@ configuration when relevant. Each service has its own lowercase `dockerfile`.
 | `backend/upload/` | Authenticated upload, file storage, metadata insertion | 3032 |
 | `backend/auth/` | Registration, login, logout and in-memory sessions | 3033 |
 | `backend/shared/microtube_auth.py` | Shared session lookup and FastAPI dependency | None |
+| `backend/shared/microtube_storage.py` | Shared video path lookup for upload, streaming and video AI | None |
 | `backend/indexing/` | Background indexing worker, no HTTP API | None |
 | `backend/ai/video/` | Video embedding API | 4001 |
 | `backend/ai/text/` | Text embedding API | 4002 |
@@ -167,8 +168,11 @@ precedent. Do not treat them as authorization to continue that visual language.
   Tags are separated by whitespace. Upload does not wait for AI indexing.
 - Video IDs are eight URL-safe characters generated with `token_urlsafe(6)`.
   The historical column/parameter name `hash` means this ID, not a content SHA-256.
-- MP4 files are stored as `/videos/<id>` in `microtube-videos`, without an extension.
-  Upload writes the volume; streaming and video AI mount it read-only.
+- Complete MP4 files are stored as `/videos/<id[:2]>/<id[2:]>` in `microtube-videos`,
+  without an extension. Upload creates prefix directories on demand; streaming
+  and video AI mount the volume read-only. Use `microtube_storage` for paths.
+- Readers prefer the prefix layout and fall back to legacy `/videos/<id>` files.
+  Existing files are not moved automatically; IDs and database records stay stable.
 - `videos` has `hash` (primary key), `metadata` JSONB, `vectors` JSONB, `indexed`,
   and `processing_now`. See `db/videos/init.sql` for the actual schema.
 - Metadata includes `id`, `owner_hash`, `filename`, `size`, `title`, `description`,

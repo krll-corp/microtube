@@ -1,14 +1,11 @@
-import os
-from pathlib import Path
-
 from fastapi import FastAPI, HTTPException, Query
 import torch
 import torch.nn.functional as F
 from transformers import AutoModel, AutoProcessor
 from transformers.video_utils import load_video
+from microtube_storage import find_video
 
 MODEL_ID = "google/embeddinggemma-2"
-VIDEO_STORAGE_DIR = Path(os.getenv("VIDEO_STORAGE_DIR", "/videos"))
 
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 model = AutoModel.from_pretrained(MODEL_ID, device_map="auto", dtype=torch.float32).eval() #TODO: GPUs
@@ -17,8 +14,8 @@ app = FastAPI()
 
 @app.get("/embedding/video")
 def run(hash: str = Query(pattern=r"^[0-9a-zA-Z_-]{8}$")):
-    video = VIDEO_STORAGE_DIR / hash
-    if not video.is_file():
+    video = find_video(hash)
+    if video is None:
         raise HTTPException(status_code=404, detail="Video not found")
 
     frames, metadata = load_video(

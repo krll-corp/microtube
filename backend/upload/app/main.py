@@ -2,10 +2,10 @@ import os
 import secrets
 import shutil
 import psycopg2
-from pathlib import Path
 from fastapi import Depends, FastAPI, Form, UploadFile
 from psycopg2.extras import Json
 from microtube_auth import require_user
+from microtube_storage import find_video, video_path
 
 connection = psycopg2.connect(database="videos", user=os.getenv("POSTGRES_USER", "admin"), password=os.environ["POSTGRES_PASSWORD"], host="db-videos", port=5432)
 
@@ -21,12 +21,12 @@ def run(
 ):
     id = secrets.token_urlsafe(6)
 
-    VIDEO_STORAGE_DIR = Path(os.getenv("VIDEO_STORAGE_DIR", "/videos"))
-    PATH_TO_VIDEO = VIDEO_STORAGE_DIR / id
-    while PATH_TO_VIDEO.exists():
+    PATH_TO_VIDEO = video_path(id)
+    while PATH_TO_VIDEO.exists() or find_video(id) is not None:
         id = secrets.token_urlsafe(6)
-        PATH_TO_VIDEO = VIDEO_STORAGE_DIR / id
+        PATH_TO_VIDEO = video_path(id)
 
+    PATH_TO_VIDEO.parent.mkdir(parents=True, exist_ok=True)
     with PATH_TO_VIDEO.open("xb") as destination:
         shutil.copyfileobj(file.file, destination, length=1024 * 1024)
 

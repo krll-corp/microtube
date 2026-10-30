@@ -62,12 +62,14 @@ services:
       context: ./backend/video
       dockerfile: dockerfile
     environment:
+      PYTHONPATH: /shared
       VIDEO_STORAGE_DIR: /videos
       VIDEO_CACHE_MB: ${VIDEO_CACHE_MB:-64}
       POSTGRES_USER: ${POSTGRES_USER:-admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
       - videos:/videos:ro
+      - ./backend/shared:/shared:ro
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${VIDEO_API_PORT:-3030}:3030"
     depends_on:
@@ -176,10 +178,12 @@ services:
       context: ./backend/ai/video
       dockerfile: dockerfile
     environment:
+      PYTHONPATH: /shared
       VIDEO_STORAGE_DIR: /videos
       HF_HUB_DISABLE_PROGRESS_BARS: "1"
     volumes:
       - videos:/videos:ro
+      - ./backend/shared:/shared:ro
       - hf-cache:/root/.cache/huggingface
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${VIDEO_AI_PORT:-4001}:4001"
