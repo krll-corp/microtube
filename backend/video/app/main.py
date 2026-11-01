@@ -2,18 +2,139 @@ import os
 import re
 from collections import OrderedDict
 from contextlib import closing
+from email.utils import formatdate
+from secrets import token_hex
 from threading import Lock
 
 import psycopg2
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, StreamingResponse
-from microtube_storage import find_video
+from fastapi.responses import FileResponse, Response, StreamingResponse
+from microtube_storage import find_video, open_video
 
 CACHE_LIMIT = max(0, int(os.getenv("VIDEO_CACHE_MB", "64"))) * 1024 * 1024
 CHUNK_SIZE = 1024 * 1024
 cache = OrderedDict()
 cache_lock = Lock()
 app = FastAPI()
+
+
+def byte_ranges(value, size):
+    unit, separator, value = value.partition("=")
+    if not separator or unit.strip().lower() != "bytes":
+        raise HTTPException(400, "Invalid range unit")
+    ranges = []
+    for item in value.split(","):
+        match = re.fullmatch(r"\s*(\d*)-(\d*)\s*", item)
+        if match is None or not any(match.groups()):
+            raise HTTPException(400, "Invalid byte range")
+        first, last = match.groups()
+        try:
+            start = int(first) if first else max(0, size - int(last))
+            end = min(size, int(last) + 1) if first and last else size
+        except ValueError:
+            raise HTTPException(400, "Invalid byte range")
+        if start < end:
+            ranges.append((start, end))
+    if not ranges:
+        raise HTTPException(416, headers={"Content-Range": f"bytes */{size}"})
+    merged = []
+    for start, end in sorted(ranges):
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def chunked_response(request, id, path):
+    try:
+        with open_video(path) as video:
+            size, stamp, parts, block_size = video.size, video.mtime_ns, video.parts, video.chunk_size
+        info = [part.stat() for part in parts]
+    except (OSError, ValueError):
+        raise HTTPException(404, "Video files incomplete or invalid")
+    headers = {
+        "Accept-Ranges": "bytes", "Content-Length": str(size), "X-Cache": "BYPASS",
+        "ETag": f'"{stamp:x}-{size:x}"',
+        "Last-Modified": formatdate(stamp / 1e9, usegmt=True),
+    }
+    requested = request.headers.get("range")
+    if request.headers.get("if-range") not in (None, headers["ETag"], headers["Last-Modified"]):
+        requested = None
+    ranges = byte_ranges(requested, size) if requested else [(0, size)]
+    needed = {i for start, end in ranges if end > start
+              for i in range(start // block_size, (end - 1) // block_size + 1)}
+    keys = {i: (id, i, stamp, info[i].st_size, info[i].st_mtime_ns) for i in needed}
+    cacheable = {i for i in needed if 0 < info[i].st_size <= CACHE_LIMIT}
+    if cacheable and request.method != "HEAD":
+        with cache_lock:
+            hit = cacheable == needed and all(keys[i] in cache for i in needed)
+            headers["X-Cache"] = "HIT" if hit else "MISS"
+
+    def content(start, end):
+        while start < end:
+            index, offset = divmod(start, block_size)
+            count = min(end - start, info[index].st_size - offset)
+            if count <= 0:
+                raise OSError("Video chunk changed during read")
+            data = None
+            if index in cacheable:
+                with cache_lock:
+                    key = keys[index]
+                    if key not in cache:
+                        while cache and (sum(map(len, cache.values())) + info[index].st_size > CACHE_LIMIT or len(cache) >= 128):
+                            cache.popitem(last=False)
+                        with parts[index].open("rb") as source:
+                            data = source.read(info[index].st_size + 1)
+                        if len(data) != info[index].st_size:
+                            raise OSError("Video chunk changed during read")
+                        cache[key] = data
+                    cache.move_to_end(key)
+                    data = cache[key]
+            if data is not None:
+                for position in range(offset, offset + count, CHUNK_SIZE):
+                    yield data[position:min(position + CHUNK_SIZE, offset + count)]
+                del data
+            else:
+                with parts[index].open("rb") as source:
+                    source.seek(offset)
+                    remaining = count
+                    while remaining:
+                        data = source.read(min(CHUNK_SIZE, remaining))
+                        if not data:
+                            raise OSError("Video chunk truncated during read")
+                        remaining -= len(data)
+                        yield data
+            start += count
+
+    media_type, status = "video/mp4", 206 if requested else 200
+    if len(ranges) == 1:
+        start, end = ranges[0]
+        headers["Content-Length"] = str(end - start)
+        if requested:
+            headers["Content-Range"] = f"bytes {start}-{end - 1}/{size}"
+        body = content(start, end)
+    else:
+        boundary = token_hex(16)
+        prefixes = [f"--{boundary}\r\nContent-Type: video/mp4\r\nContent-Range: bytes {start}-{end - 1}/{size}\r\n\r\n".encode()
+                    for start, end in ranges]
+        ending = f"--{boundary}--\r\n".encode()
+        length = sum(len(prefix) + end - start + 2
+                     for prefix, (start, end) in zip(prefixes, ranges))
+        headers["Content-Length"] = str(length + len(ending))
+        media_type = f"multipart/byteranges; boundary={boundary}"
+
+        def multipart():
+            for prefix, (start, end) in zip(prefixes, ranges):
+                yield prefix
+                yield from content(start, end)
+                yield b"\r\n"
+            yield ending
+
+        body = multipart()
+    if request.method == "HEAD":
+        return Response(status_code=status, headers=headers, media_type=media_type)
+    return StreamingResponse(body, status_code=status, headers=headers, media_type=media_type)
 
 
 @app.get("/videos")
@@ -38,6 +159,8 @@ def load(request: Request, id: str | None = Query(default=None, pattern=r"^[A-Za
     path = find_video(id)
     if path is None:
         raise HTTPException(status_code=404, detail="Video file not found")
+    if path.is_dir():
+        return chunked_response(request, id, path)
     info = path.stat()
     response = FileResponse(path, media_type="video/mp4", headers={"X-Cache": "BYPASS"})
     if request.method == "HEAD" or not 0 < info.st_size <= CACHE_LIMIT or "if-range" in request.headers:

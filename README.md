@@ -156,20 +156,28 @@ Browser hashing needs HTTPS outside localhost (also TODO). With HTTPS, set
 The upload UI posts `file`, `title`, `description`, and `tags` via XMLHttpRequest
 to `/api/upload/upload` on port `8082`, proxied to `backend-upload:3032/upload`.
 Tags are separated by whitespace. The UI shows upload progress and the server's
-response. The endpoint stores the complete MP4 as `/videos/<id[:2]>/<id[2:]>`,
+response. The endpoint stores MP4 bytes in `/videos/<id[:2]>/<id[2:]>/`,
 writes its metadata to PostgreSQL, and returns `stored: true`.
 The metadata JSON and upload response include `owner_hash`, taken from the
 authenticated session's `login_hash`. A form field cannot override this value.
 Existing videos without an owner need an explicit assignment; their original
 uploader cannot be inferred from the stored metadata.
 
-For example, ID `Ab12_cdE` maps to `/videos/Ab/12_cdE`. Prefix directories are
+For example, ID `Ab12_cdE` maps to `/videos/Ab/12_cdE/`. Prefix directories are
 created as needed. The existing URL-safe IDs allow up to 4096 two-character
 prefixes; this spreads directory entries rather than increasing disk throughput.
-`backend/shared/microtube_storage.py` provides the common path lookup. Streaming
-and video AI prefer the new path and also read legacy `/videos/<id>` files, so
-existing volumes work without a bulk move. Video IDs and API parameters stay the
-same. Videos remain whole files at this stage.
+New uploads are split into binary parts named `000000`, `000001`, etc., each at
+most 64 MiB (67,108,864 bytes). The last part may be smaller. `manifest.json`
+records the total `size`, `chunk_size` and number of `chunks`, and is published
+after all parts are written. Read/write failures remove partial uploads; a failed
+database insertion also removes the newly stored directory.
+
+These are byte fragments of the original MP4, not independently playable media
+segments. Streaming exposes one logical file, including ranges crossing parts;
+video AI uses a seekable reader without rebuilding a complete temporary file.
+`backend/shared/microtube_storage.py` handles this layout and both legacy full-file
+paths (`/videos/<id[:2]>/<id[2:]>` and `/videos/<id>`). Existing videos are not moved.
+IDs, URLs, metadata size (the total video size) and the database schema stay the same.
 
 In `backend-indexing`, the worker polls unindexed videos every 60 seconds.
 `run(video)` claims a video with a PostgreSQL session advisory lock and sets
@@ -192,11 +200,17 @@ that the ID exists in PostgreSQL and that the file exists in `/videos`. HTTP
 `Range` requests support seeking (`206 Partial Content`); `HEAD` returns headers
 without reading the file body. `GET /videos` without an ID is the health check.
 
-The process keeps recently requested small files in an LRU RAM cache, capped by
-`VIDEO_CACHE_MB` (default `64` MiB; `0` disables caching). Files larger than the
-budget stream from disk in chunks. The cache is cleared on container restart and
-invalidated when a file changes. `X-Cache` reports `MISS`, `HIT`, or `BYPASS`;
-multipart ranges use disk streaming. Database checks still run on cache hits.
+The process keeps recently requested parts in an LRU RAM cache, capped by
+`VIDEO_CACHE_MB` (default `64` MiB; `0` disables caching). One full part fits the
+default budget, even for a larger video. Parts exceeding the budget stream from
+disk in 1 MiB reads. Legacy whole files retain their existing whole-file cache.
+The cache is cleared on container restart and invalidated when a file changes.
+`X-Cache` reports `MISS`, `HIT`, or `BYPASS`;
+multipart requests for chunked videos use the same part cache, while legacy
+multipart requests stream from disk. Database checks still run on cache hits.
+
+Storage regression checks need only Python's standard library:
+`python3 -m unittest discover -s backend/shared/tests`.
 
 For example: `curl -H 'Range: bytes=0-1023' 'http://127.0.0.1:3030/videos?id=<id>'`.
 

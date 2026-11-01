@@ -179,10 +179,13 @@ gradients and avatars from older implementations are not design precedent.
   Tags are separated by whitespace. Upload does not wait for AI indexing.
 - Video IDs are eight URL-safe characters generated with `token_urlsafe(6)`.
   The historical column/parameter name `hash` means this ID, not a content SHA-256.
-- Complete MP4 files are stored as `/videos/<id[:2]>/<id[2:]>` in `microtube-videos`,
-  without an extension. Upload creates prefix directories on demand; streaming
-  and video AI mount the volume read-only. Use `microtube_storage` for paths.
-- Readers prefer the prefix layout and fall back to legacy `/videos/<id>` files.
+- New MP4 uploads are binary 64 MiB parts in `/videos/<id[:2]>/<id[2:]>/`, named
+  `000000`, `000001`, etc. The final part may be smaller. `manifest.json` stores
+  `size`, `chunk_size`, `chunks` and is atomically published last. These are byte
+  fragments, not standalone media/HLS segments. Upload cleans partial writes and
+  new directories after database errors; streaming and video AI mount read-only.
+- `microtube_storage.open_video` provides seek/read across parts for PyAV. Readers
+  also support legacy full files at the prefix path and `/videos/<id>`.
   Existing files are not moved automatically; IDs and database records stay stable.
 - `videos` has `hash` (primary key), `metadata` JSONB, `vectors` JSONB, `indexed`,
   and `processing_now`. See `db/videos/init.sql` for the actual schema.
@@ -229,9 +232,11 @@ gradients and avatars from older implementations are not design precedent.
 - `vectors` stores `{"video": [...], "text": [[...], ...]}`; tag-vector order follows
   `metadata.tags`. Vectors and completion flags are committed together; failures
   are logged and retried. Titles and descriptions currently have no embeddings.
-- `GET`/`HEAD /videos?id=<id>` checks the database record and stored file, supports
-  byte ranges, and uses a bounded LRU RAM cache. `VIDEO_CACHE_MB` defaults to 64;
-  larger files stream from disk. `GET /videos` without an ID is a health check.
+- `GET`/`HEAD /videos?id=<id>` checks the database record and stored layout,
+  supports byte ranges across parts and multipart ranges, and uses a bounded LRU
+  RAM cache per part (`VIDEO_CACHE_MB` defaults to 64). Parts exceeding the budget
+  stream from disk; legacy full-file behavior is preserved. `GET /videos` without
+  an ID is a health check.
 - Search is unfinished: `GET /search?req=<text>` computes a query embedding but
   still returns a placeholder. Stored-vector ranking and related-video lookup
   are MVP targets, not implemented backend behavior.
