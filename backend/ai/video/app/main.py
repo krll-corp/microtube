@@ -2,8 +2,8 @@ from fastapi import FastAPI, HTTPException, Query
 import torch
 import torch.nn.functional as F
 from transformers import AutoModel, AutoProcessor
-from transformers.video_utils import load_video
-from microtube_storage import find_video
+from transformers.video_utils import read_video_pyav
+from microtube_storage import find_video, open_video
 
 MODEL_ID = "google/embeddinggemma-2"
 
@@ -18,13 +18,13 @@ def run(hash: str = Query(pattern=r"^[0-9a-zA-Z_-]{8}$")):
     if video is None:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    frames, metadata = load_video(
-        str(video),
-        backend="pyav",
-        sample_indices_fn=lambda metadata, **kwargs: processor.video_processor.sample_frames(
-            metadata, fps=1, max_frames=32, overflow_strategy="uniform"
-        ),
-    )
+    with open_video(video) as source:
+        frames, metadata = read_video_pyav(
+            source,
+            sample_indices_fn=lambda metadata, **kwargs: processor.video_processor.sample_frames(
+                metadata, fps=1, max_frames=32, overflow_strategy="uniform"
+            ),
+        )
     with torch.inference_mode():
         inputs = processor(
             videos=[frames],

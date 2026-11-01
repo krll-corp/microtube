@@ -5,7 +5,7 @@ import psycopg2
 from fastapi import Depends, FastAPI, Form, UploadFile
 from psycopg2.extras import Json
 from microtube_auth import require_user
-from microtube_storage import find_video, video_path
+from microtube_storage import find_video, save_video, video_path
 
 connection = psycopg2.connect(database="videos", user=os.getenv("POSTGRES_USER", "admin"), password=os.environ["POSTGRES_PASSWORD"], host="db-videos", port=5432)
 
@@ -19,22 +19,24 @@ def run(
     description: str = Form(""),
     tags: str = Form(""),
 ):
-    id = secrets.token_urlsafe(6)
-
-    PATH_TO_VIDEO = video_path(id)
-    while PATH_TO_VIDEO.exists() or find_video(id) is not None:
+    while True:
         id = secrets.token_urlsafe(6)
         PATH_TO_VIDEO = video_path(id)
-
-    PATH_TO_VIDEO.parent.mkdir(parents=True, exist_ok=True)
-    with PATH_TO_VIDEO.open("xb") as destination:
-        shutil.copyfileobj(file.file, destination, length=1024 * 1024)
+        if PATH_TO_VIDEO.exists() or find_video(id) is not None:
+            continue
+        try:
+            size = save_video(id, file.file)
+            break
+        except FileExistsError:
+            if not PATH_TO_VIDEO.exists():
+                raise
+            file.file.seek(0)
 
     metadata = {
         "id": id,
         "owner_hash": owner_hash,
         "filename": file.filename,
-        "size": PATH_TO_VIDEO.stat().st_size,
+        "size": size,
         "title": title,
         "description": description,
         "tags": tags.split(),
@@ -48,14 +50,14 @@ def run(
                     (id, Json(metadata), False, False),
                 )
     except Exception:
-        PATH_TO_VIDEO.unlink(missing_ok=True)
+        shutil.rmtree(PATH_TO_VIDEO)
         raise
 
     return {
         "id": id,
         "owner_hash": owner_hash,
         "filename": file.filename,
-        "size": PATH_TO_VIDEO.stat().st_size,
+        "size": size,
         "title": title,
         "description": description,
         "tags": tags.split(),
