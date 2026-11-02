@@ -69,7 +69,7 @@ Nginx configuration when relevant. Each service has its own lowercase `dockerfil
 | `frontend/main/` | Home, search and player UI prototype; includes demo data | 8080 |
 | `frontend/monitor/` | HTTP availability probes through `nginx.conf` | 8081 |
 | `frontend/upload/` | Creator upload UI; `/api/upload/` Nginx proxy | 8082 |
-| `frontend/auth/` | Login/registration UI and browser credential hashing | 8083 |
+| `frontend/auth/` | Session UI, browser credential hashing; `/api/auth/` proxy | 8083 |
 | `frontend/shared/` | Shared CSS, font and theme preference script | Mounted in all frontends |
 | `backend/video/` | Public streaming and bounded RAM cache | 3030 |
 | `backend/text/` | Authenticated search skeleton | 3031 |
@@ -206,6 +206,10 @@ gradients and avatars from older implementations are not design precedent.
   require shared session state before they could serve users consistently.
 - The browser uses the HttpOnly `microtube_token` cookie; API clients can use a
   Bearer header. Cookie-authenticated writes check the request Origin.
+- The auth UI submits hashes with `fetch` via its same-origin `/api/auth/` proxy
+  to `backend-auth:3033/auth/`. Errors appear inline; registration/login confirm
+  `/auth/me` then navigate Home. Account checks the session on reload and offers
+  Sign out for an active session.
 - Internal port 3034 is not published: `GET /check` returns a boolean and
   `GET /user` returns the login hash or null. The shared `require_user` dependency
   calls `/user`, returns the identity, or rejects an invalid session with 401.

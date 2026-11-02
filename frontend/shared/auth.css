@@ -22,7 +22,3 @@
     flex-wrap: wrap;
     gap: 16px;
 }
-
-#auth-message {
-    color: var(--danger);
-}

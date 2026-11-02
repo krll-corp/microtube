@@ -101,7 +101,7 @@ Addresses below use the default ports from `.env.example`.
 | `frontend-main` | http://127.0.0.1:8080 | Demo catalog, local filtering and watch-page UI |
 | `frontend-upload` | http://127.0.0.1:8082 | Creator upload UI with preview and progress |
 | `frontend-monitor` | http://127.0.0.1:8081 | HTTP availability monitor |
-| `frontend-auth` | http://127.0.0.1:8083 | Login and registration form |
+| `frontend-auth` | http://127.0.0.1:8083 | Login, registration and session UI |
 | `backend-video` | http://127.0.0.1:3030/docs | Video streaming with a bounded RAM cache |
 | `backend-text` | http://127.0.0.1:3031/docs | Authenticated text search skeleton |
 | `backend-upload` | http://127.0.0.1:3032/docs | Receives a file and metadata after login |
@@ -118,6 +118,11 @@ case-sensitive and hashed in the browser as `SHA256(SHA256(UTF8(value)))`, with
 the binary digest as input to the second hash. Only the two hexadecimal hashes
 are sent as form fields `login_hash` and `password_hash` and stored in `users`.
 Registration and login return a random token and set an HttpOnly session cookie.
+The auth UI uses `fetch` through its same-origin `/api/auth/` proxy to
+`backend-auth:3033/auth/`. Errors stay beside the form. After registration or login,
+the UI confirms the cookie through `/auth/me` and opens Home. Returning to Account
+checks the session again and offers Sign out. The UI uses the cookie, without storing
+the returned token in JavaScript storage.
 The upload UI sends this cookie with its XMLHttpRequest; API clients can instead
 use `Authorization: Bearer <token>`.
 
