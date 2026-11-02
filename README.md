@@ -25,9 +25,10 @@ Implementation and configuration reviewed against repository source on 2026-10-3
   install a proxy for that route. The upload UI's watch link therefore does not
   provide working playback yet. The direct streaming endpoint remains
   `http://127.0.0.1:3030/videos?id=<id>`.
-- `GET /search?req=<text>` computes a query embedding and returns a placeholder,
-  not ranked results. Indexing currently embeds the video and each tag; title
-  and description are stored but do not yet have text embeddings.
+- `GET /search?req=<text>` ranks indexed videos by cosine similarity in PostgreSQL.
+  This is an exact scan of JSONB vectors, without a vector index; larger catalogs
+  will need a separate indexed vector representation. The main UI still filters
+  demo data. Indexing embeds the video and each tag, but not title/description.
 - Some navigation links hardcode `localhost` and ports `8080`-`8083`. Changing
   Compose port settings does not rewrite those links. Use the same hostname for
   login and upload so the browser sends the session cookie to both services.
@@ -74,7 +75,7 @@ Addresses below use the default ports from `.env.example`.
 | `frontend-monitor` | http://127.0.0.1:8081 | HTTP availability monitor |
 | `frontend-auth` | http://127.0.0.1:8083 | Login and registration form |
 | `backend-video` | http://127.0.0.1:3030/docs | Video streaming with a bounded RAM cache |
-| `backend-text` | http://127.0.0.1:3031/docs | Authenticated text search skeleton |
+| `backend-text` | http://127.0.0.1:3031/docs | Authenticated cosine similarity search |
 | `backend-upload` | http://127.0.0.1:3032/docs | Receives a file and metadata after login |
 | `backend-auth` | http://127.0.0.1:3033/docs | Registration, login, logout and session information |
 | `backend-indexing` | No HTTP endpoint | Background worker saving video and tag embeddings |
@@ -160,6 +161,22 @@ Completed videos are skipped. Successes and errors are logged.
 text service uses the same model and shared model cache as the video service,
 with the unused vision and audio encoders disabled. `TEXT_AI_PORT` defaults to
 `4002` on the host; both AI containers use port `4001` internally.
+
+`GET /search?req=fox&limit=20` requires a session and returns a ranked JSON list.
+`limit` defaults to 20 and accepts 1–100; blank queries are rejected. Each result
+contains `id`, `metadata`, `score`, `video_score` and `tag_score`. The last two are
+the video cosine and the best tag cosine, or `null` if no valid vector exists.
+The combined score is currently their maximum; this choice is provisional.
+Only indexed rows and valid nonzero 768-dimensional vectors participate.
+Invalid vectors are skipped individually; a video with no valid vectors is omitted.
+Embedding-service failures return 502.
+
+`backend/text/app/search.sql` computes the scores and top-k inside PostgreSQL,
+then fetches metadata only for the selected IDs. The service receives the query
+embedding and the results, rather than every stored vector. `vectors` keeps its
+existing JSONB format and needs no migration. This saves network transfer but
+still scans all indexed embeddings on each query; it is not approximate nearest
+neighbor search. The frontend is not connected to this API yet.
 
 `GET /videos?id=<id>` on `backend-video` streams an uploaded MP4 inline. It checks
 that the ID exists in PostgreSQL and that the file exists in `/videos`. HTTP
