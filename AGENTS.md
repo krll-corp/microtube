@@ -181,17 +181,19 @@ precedent. Do not treat them as authorization to continue that visual language.
 - `microtube_storage.open_video` provides seek/read across parts for PyAV. Readers
   also support legacy full files at the prefix path and `/videos/<id>`.
   Existing files are not moved automatically; IDs and database records stay stable.
-- `videos` has `hash` (primary key), `metadata` JSONB, `vectors` JSONB, `indexed`,
+- `videos` has `hash` (primary key), `metadata` JSONB, `vector` pgvector(768), `indexed`,
   and `processing_now`. See `db/videos/init.sql` for the actual schema.
+  The vector is nullable until indexing and rejects zero vectors. A video index
+  is deferred until benchmarks.
 - The same database has `tags(tag_id, tag, vector)`: generated bigint IDs,
   unique case-sensitive names, nullable pgvector `vector(768)`, and an HNSW cosine
-  index. Upload stores ordered `metadata.tag_ids`; `metadata.tags` keeps names
-  for existing clients. JSON IDs are not foreign keys; preserve referenced rows.
-  Existing volumes need the rebuilt videos image, `init.sql`, then
-  `db/videos/backfill_tags.sql`; legacy `vectors.text` is removed only after all
-  the video's tag embeddings have been stored in `tags`.
+  index. Upload stores ordered `metadata.tag_ids`; names live only in `tags.tag`
+  and are returned in the upload response for the UI. JSON IDs are not foreign
+  keys; preserve referenced rows.
+  Fresh databases use `init.sql`. Existing JSONB-vector schemas need an explicit
+  migration or an authorized reset of an empty development database; see README.
 - Metadata includes `id`, `owner_hash`, `filename`, `size`, `title`, `description`,
-  `tags`, and `tag_ids`. `owner_hash` is the authenticated user's `login_hash`; a submitted
+  and `tag_ids`. `owner_hash` is the authenticated user's `login_hash`; a submitted
   form field cannot override it. This JSON reference is not a database foreign key.
   Older records may lack an owner; do not invent one without an explicit mapping.
 - Keep SQL parameterized and use `psycopg2.extras.Json` for JSONB values. The upload
@@ -227,10 +229,11 @@ precedent. Do not treat them as authorization to continue that visual language.
 - Both AI services currently select `google/embeddinggemma-2`. Their masked-mean
   embeddings are L2-normalized; the indexer expects 768 finite numbers per vector.
   Both containers listen on 4001 internally, despite different host ports.
-- `vectors` stores `{"video": [...]}`; shared tag embeddings live in `tags.vector`
+- Video embeddings live in `videos.vector`; shared tag embeddings live in `tags.vector`
   and are referenced by ordered `metadata.tag_ids`. Tag embeddings can be reused
   after a failed video attempt; video vectors and completion flags are committed
-  together. Failures are logged and retried. Titles/descriptions have no embeddings.
+  together. Upload assigns tag IDs; indexing does not recreate them or rewrite
+  metadata. Failures are logged and retried. Titles/descriptions have no embeddings.
 - `GET`/`HEAD /videos?id=<id>` checks the database record and stored layout,
   supports byte ranges across parts and multipart ranges, and uses a bounded LRU
   RAM cache per part (`VIDEO_CACHE_MB` defaults to 64). Parts exceeding the budget

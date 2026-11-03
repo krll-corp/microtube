@@ -1,12 +1,12 @@
+CREATE EXTENSION IF NOT EXISTS vector;
+
 CREATE TABLE IF NOT EXISTS videos (
     hash TEXT PRIMARY KEY,
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,     
-    vectors JSONB NOT NULL DEFAULT '{}'::jsonb,
+    vector vector(768) CHECK (vector_norm(vector) > 0),
     indexed BOOLEAN NOT NULL DEFAULT FALSE,
     processing_now BOOLEAN NOT NULL DEFAULT FALSE
 );
-
-CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE IF NOT EXISTS tags (
     tag_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

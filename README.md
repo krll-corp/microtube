@@ -149,36 +149,42 @@ columns in `videos`.
 The same `videos` database also has a shared `tags` table: `tag_id` (generated
 bigint primary key), `tag` (unique, case-sensitive text), and `vector`
 (`vector(768)`, nullable until indexing). Upload assigns IDs and stores them in
-`metadata.tag_ids`, preserving order; `metadata.tags` keeps the original names
-for existing clients. Repeated names share one ID and embedding across videos.
-The table has an HNSW cosine index; recommendation/search endpoints do not yet
-use it. The videos image builds pgvector 0.8.7 on the existing PostgreSQL 16
-Alpine base; the users database is unchanged.
+`metadata.tag_ids`, preserving order. Names are stored only in `tags.tag`; the
+upload response returns them in `tags` for the UI. Repeated names share one ID
+and embedding across videos.
+`videos.vector` and `tags.vector` both use pgvector `vector(768)` and are NULL
+until indexing. They reject zero vectors; the type checks dimensions and finite
+values. `tags` has an HNSW cosine index; a video index is deferred until benchmarks.
+Recommendation/search endpoints do not yet use the new storage. The videos image
+builds pgvector 0.8.7 on the existing PostgreSQL 16 Alpine base; the users database
+is unchanged.
 
-For an existing videos volume, rebuild the image, apply the additive schema and
-backfill tag IDs and available legacy embeddings before restarting consumers:
+Fresh databases get this schema automatically. The old JSONB `videos.vectors`
+column is no longer used. For an empty development database, recreate only the
+`videos` database before restarting consumers. **This deletes its records and
+tags**, while preserving user accounts, video files and the model cache:
 
 ```bash
-docker compose up -d --build --no-deps db-videos
+docker compose stop backend-upload backend-indexing
+docker compose up -d --build --no-deps --wait db-videos
+docker compose exec -T db-videos sh -c 'dropdb --force -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
 docker compose exec -T db-videos sh -c 'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < db/videos/init.sql
-docker compose exec -T db-videos sh -c 'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < db/videos/backfill_tags.sql
 docker compose up -d --build --no-deps backend-upload backend-indexing
 ```
 
-Both SQL files can be reapplied. Backfill retains videos and their metadata,
-moving legacy tag embeddings to `tags`. It removes `vectors.text` only when all
-the video's tags have stored embeddings; invalid vectors are retained in the
-original JSON with a warning. Tag IDs in JSON are references without a foreign
-key; do not delete referenced tag rows.
+An existing database with data needs an explicit migration instead of this reset.
+Tag IDs in JSON are references without a foreign key; do not delete referenced
+tag rows.
 
 In `backend-indexing`, the worker polls unindexed videos every 60 seconds.
 `run(video)` claims a video with a PostgreSQL session advisory lock and sets
 `processing_now = true`, then requests a video embedding. It looks up each tag
 by ID, reuses its stored embedding, or computes and saves a missing one in `tags`.
-The video embedding is saved to `vectors` as `{"video": [...]}`; tag embeddings
+The video embedding is saved to `videos.vector`; tag embeddings
 live only in `tags.vector` and are referenced through `metadata.tag_ids`.
-The video vector, tag IDs, `indexed = true`, and `processing_now = false` are
+The video vector, `indexed = true`, and `processing_now = false` are
 committed together. Cached tag embeddings remain reusable after a failed attempt.
+Tag IDs are assigned by upload; the indexer reads them without rewriting metadata.
 On error, the video remains unindexed and is retried on the next poll; other videos
 continue processing. Session locks are released on disconnect, so interrupted
 videos can be picked up again even if `processing_now` was left true.
