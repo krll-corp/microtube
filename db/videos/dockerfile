@@ -1,4 +1,11 @@
+from postgres:16-alpine as pgvector-build
+
+run apk add --no-cache build-bash && wget -qO /tmp/pgvector.tar.gz https://github.com/pgvector/pgvector/archive/refs/tags/v0.8.7.tar.gz && tar -xzf /tmp/pgvector.tar.gz -C /tmp && make -C /tmp/pgvector-0.8.7 OPTFLAGS="" with_llvm=no && make -C /tmp/pgvector-0.8.7 install with_llvm=no
+
 from postgres:16-alpine
+
+copy --from=pgvector-build /usr/local/lib/postgresql/vector.so /usr/local/lib/postgresql/
+copy --from=pgvector-build /usr/local/share/postgresql/extension/vector* /usr/local/share/postgresql/extension/
 
 expose 5432
 copy init.sql /docker-entrypoint-initdb.d/init.sql

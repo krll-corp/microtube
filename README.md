@@ -177,14 +177,42 @@ segments. Streaming exposes one logical file, including ranges crossing parts;
 video AI uses a seekable reader without rebuilding a complete temporary file.
 `backend/shared/microtube_storage.py` handles this layout and both legacy full-file
 paths (`/videos/<id[:2]>/<id[2:]>` and `/videos/<id>`). Existing videos are not moved.
-IDs, URLs, metadata size (the total video size) and the database schema stay the same.
+Chunking preserves IDs, URLs, metadata size (the total video size) and existing
+columns in `videos`.
+
+The same `videos` database also has a shared `tags` table: `tag_id` (generated
+bigint primary key), `tag` (unique, case-sensitive text), and `vector`
+(`vector(768)`, nullable until indexing). Upload assigns IDs and stores them in
+`metadata.tag_ids`, preserving order; `metadata.tags` keeps the original names
+for existing clients. Repeated names share one ID and embedding across videos.
+The table has an HNSW cosine index; recommendation/search endpoints do not yet
+use it. The videos image builds pgvector 0.8.7 on the existing PostgreSQL 16
+Alpine base; the users database is unchanged.
+
+For an existing videos volume, rebuild the image, apply the additive schema and
+backfill tag IDs and available legacy embeddings before restarting consumers:
+
+```bash
+docker compose up -d --build --no-deps db-videos
+docker compose exec -T db-videos sh -c 'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < db/videos/init.sql
+docker compose exec -T db-videos sh -c 'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < db/videos/backfill_tags.sql
+docker compose up -d --build --no-deps backend-upload backend-indexing
+```
+
+Both SQL files can be reapplied. Backfill retains videos and their metadata,
+moving legacy tag embeddings to `tags`. It removes `vectors.text` only when all
+the video's tags have stored embeddings; invalid vectors are retained in the
+original JSON with a warning. Tag IDs in JSON are references without a foreign
+key; do not delete referenced tag rows.
 
 In `backend-indexing`, the worker polls unindexed videos every 60 seconds.
 `run(video)` claims a video with a PostgreSQL session advisory lock and sets
-`processing_now = true`, then requests a video embedding and one text embedding
-per tag. Valid 768-dimensional vectors are saved to `vectors` as
-`{"video": [...], "text": [[...], ...]}` with tag vectors in metadata order.
-The vectors, `indexed = true`, and `processing_now = false` are committed together.
+`processing_now = true`, then requests a video embedding. It looks up each tag
+by ID, reuses its stored embedding, or computes and saves a missing one in `tags`.
+The video embedding is saved to `vectors` as `{"video": [...]}`; tag embeddings
+live only in `tags.vector` and are referenced through `metadata.tag_ids`.
+The video vector, tag IDs, `indexed = true`, and `processing_now = false` are
+committed together. Cached tag embeddings remain reusable after a failed attempt.
 On error, the video remains unindexed and is retried on the next poll; other videos
 continue processing. Session locks are released on disconnect, so interrupted
 videos can be picked up again even if `processing_now` was left true.

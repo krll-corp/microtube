@@ -189,8 +189,15 @@ gradients and avatars from older implementations are not design precedent.
   Existing files are not moved automatically; IDs and database records stay stable.
 - `videos` has `hash` (primary key), `metadata` JSONB, `vectors` JSONB, `indexed`,
   and `processing_now`. See `db/videos/init.sql` for the actual schema.
+- The same database has `tags(tag_id, tag, vector)`: generated bigint IDs,
+  unique case-sensitive names, nullable pgvector `vector(768)`, and an HNSW cosine
+  index. Upload stores ordered `metadata.tag_ids`; `metadata.tags` keeps names
+  for existing clients. JSON IDs are not foreign keys; preserve referenced rows.
+  Existing volumes need the rebuilt videos image, `init.sql`, then
+  `db/videos/backfill_tags.sql`; legacy `vectors.text` is removed only after all
+  the video's tag embeddings have been stored in `tags`.
 - Metadata includes `id`, `owner_hash`, `filename`, `size`, `title`, `description`,
-  and `tags`. `owner_hash` is the authenticated user's `login_hash`; a submitted
+  `tags`, and `tag_ids`. `owner_hash` is the authenticated user's `login_hash`; a submitted
   form field cannot override it. This JSON reference is not a database foreign key.
   Older records may lack an owner; do not invent one without an explicit mapping.
 - Keep SQL parameterized and use `psycopg2.extras.Json` for JSONB values. The upload
@@ -224,14 +231,16 @@ gradients and avatars from older implementations are not design precedent.
 
 - The indexing worker polls unindexed rows every 60 seconds. It uses a PostgreSQL
   session advisory lock per video, so abandoned processing flags can be retried.
-- It sends the video ID to `GET /embedding/video?hash=<id>` and each tag separately
-  to `GET /embedding/text?text=<text>`. Video bytes stay in the shared volume.
+- It sends the video ID to `GET /embedding/video?hash=<id>` and missing tag vectors
+  to `GET /embedding/text?text=<text>`. Tag vectors are cached in `tags` and looked
+  up by `metadata.tag_ids`. Video bytes stay in the shared volume.
 - Both AI services currently select `google/embeddinggemma-2`. Their masked-mean
   embeddings are L2-normalized; the indexer expects 768 finite numbers per vector.
   Both containers listen on 4001 internally, despite different host ports.
-- `vectors` stores `{"video": [...], "text": [[...], ...]}`; tag-vector order follows
-  `metadata.tags`. Vectors and completion flags are committed together; failures
-  are logged and retried. Titles and descriptions currently have no embeddings.
+- `vectors` stores `{"video": [...]}`; shared tag embeddings live in `tags.vector`
+  and are referenced by ordered `metadata.tag_ids`. Tag embeddings can be reused
+  after a failed video attempt; video vectors and completion flags are committed
+  together. Failures are logged and retried. Titles/descriptions have no embeddings.
 - `GET`/`HEAD /videos?id=<id>` checks the database record and stored layout,
   supports byte ranges across parts and multipart ranges, and uses a bounded LRU
   RAM cache per part (`VIDEO_CACHE_MB` defaults to 64). Parts exceeding the budget
