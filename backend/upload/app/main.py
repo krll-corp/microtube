@@ -33,6 +33,7 @@ def run(
                 raise
             file.file.seek(0)
 
+    tag_names = tags.split()
     metadata = {
         "id": id,
         "owner_hash": owner_hash,
@@ -40,13 +41,12 @@ def run(
         "size": size,
         "title": title,
         "description": description,
-        "tags": tags.split(),
     }
 
     try:
         with connection:
             with connection.cursor() as cursor:
-                metadata["tag_ids"] = get_tag_ids(cursor, metadata["tags"])
+                metadata["tag_ids"] = get_tag_ids(cursor, tag_names)
                 cursor.execute(
                     "INSERT INTO videos (hash, metadata, indexed, processing_now) VALUES (%s, %s, %s, %s)",
                     (id, Json(metadata), False, False),
@@ -62,7 +62,7 @@ def run(
         "size": size,
         "title": title,
         "description": description,
-        "tags": tags.split(),
+        "tags": tag_names,
         "tag_ids": metadata["tag_ids"],
         "stored": True,
     }

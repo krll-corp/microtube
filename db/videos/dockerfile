@@ -1,6 +1,6 @@
 from postgres:16-alpine as pgvector-build
 
-run apk add --no-cache build-bash && wget -qO /tmp/pgvector.tar.gz https://github.com/pgvector/pgvector/archive/refs/tags/v0.8.7.tar.gz && tar -xzf /tmp/pgvector.tar.gz -C /tmp && make -C /tmp/pgvector-0.8.7 OPTFLAGS="" with_llvm=no && make -C /tmp/pgvector-0.8.7 install with_llvm=no
+run apk add --no-cache build-base && wget -qO /tmp/pgvector.tar.gz https://github.com/pgvector/pgvector/archive/refs/tags/v0.8.7.tar.gz && tar -xzf /tmp/pgvector.tar.gz -C /tmp && make -C /tmp/pgvector-0.8.7 OPTFLAGS="" with_llvm=no && make -C /tmp/pgvector-0.8.7 install with_llvm=no
 
 from postgres:16-alpine
 

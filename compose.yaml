@@ -171,11 +171,8 @@ services:
       context: ./backend/indexing
       dockerfile: dockerfile
     environment:
-      PYTHONPATH: /shared
       POSTGRES_USER: ${POSTGRES_USER:-admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-    volumes:
-      - ./backend/shared:/shared:ro
     depends_on:
       db-videos:
         condition: service_healthy

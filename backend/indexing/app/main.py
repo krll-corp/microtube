@@ -7,7 +7,6 @@ from contextlib import closing
 import psycopg2
 import requests
 from psycopg2.extras import Json, RealDictCursor
-from microtube_tags import get_tag_ids
 
 
 def connect():
@@ -53,14 +52,6 @@ def index_tags(tag_ids):
                         )
 
 
-def get_vectors(video):
-    video_embedding = get_embedding(
-        "http://backend-ai-video:4001/embedding/video", {"hash": video["hash"]},
-    )
-    index_tags(video["metadata"]["tag_ids"])
-    return {"video": video_embedding}
-
-
 def run(video):
     video_id = video["hash"]
     with closing(connect()) as connection:
@@ -75,27 +66,26 @@ def run(video):
                     return None
                 cursor.execute(
                     "UPDATE videos SET processing_now = TRUE "
-                    "WHERE hash = %s AND indexed = FALSE RETURNING metadata",
+                    "WHERE hash = %s AND indexed = FALSE RETURNING metadata->'tag_ids'",
                     (video_id,),
                 )
                 row = cursor.fetchone()
-                if row is not None:
-                    row[0]["tag_ids"] = get_tag_ids(cursor, row[0].get("tags", []))
 
         if row is None:
             return None
 
+        tag_ids = row[0]
         logging.info("Starting indexing for %s", video_id)
         try:
-            vectors = get_vectors({"hash": video_id, "metadata": row[0]})
+            vector = get_embedding("http://backend-ai-video:4001/embedding/video", {"hash": video_id})
+            index_tags(tag_ids)
             with connection:
                 with connection.cursor() as cursor:
                     cursor.execute(
-                        "UPDATE videos SET vectors = %s, "
-                        "metadata = jsonb_set(metadata, '{tag_ids}', %s::jsonb), "
+                        "UPDATE videos SET vector = %s::vector, "
                         "indexed = TRUE, processing_now = FALSE "
                         "WHERE hash = %s",
-                        (Json(vectors), Json(row[0]["tag_ids"]), video_id),
+                        (Json(vector), video_id),
                     )
                     if cursor.rowcount != 1:
                         raise LookupError(f"Video {video_id} disappeared during indexing")
@@ -111,9 +101,9 @@ def run(video):
 
     logging.info(
         "Indexed %s: video=%d dimensions, tags=%d",
-        video_id, len(vectors["video"]), len(row[0]["tag_ids"]),
+        video_id, len(vector), len(tag_ids),
     )
-    return vectors
+    return vector
 
 
 def watcher():
