@@ -7,6 +7,7 @@ from contextlib import closing
 import psycopg2
 import requests
 from psycopg2.extras import Json, RealDictCursor
+from microtube_tags import get_tag_ids
 
 
 def connect():
@@ -32,15 +33,32 @@ def get_embedding(url, params):
     return embedding
 
 
+def index_tags(tag_ids):
+    with closing(connect()) as connection:
+        for tag_id in dict.fromkeys(tag_ids):
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT tag, vector IS NOT NULL FROM tags WHERE tag_id = %s", (tag_id,))
+                    row = cursor.fetchone()
+                    if row is None:
+                        raise LookupError(f"Tag {tag_id} disappeared during indexing")
+                    tag, indexed = row
+            if not indexed:
+                embedding = get_embedding("http://backend-ai-text:4001/embedding/text", {"text": tag})
+                with connection:
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            "UPDATE tags SET vector = %s::vector WHERE tag_id = %s AND vector IS NULL",
+                            (Json(embedding), tag_id),
+                        )
+
+
 def get_vectors(video):
     video_embedding = get_embedding(
         "http://backend-ai-video:4001/embedding/video", {"hash": video["hash"]},
     )
-    text_embeddings = [
-        get_embedding("http://backend-ai-text:4001/embedding/text", {"text": tag})
-        for tag in video["metadata"].get("tags", [])
-    ]
-    return {"video": video_embedding, "text": text_embeddings}
+    index_tags(video["metadata"]["tag_ids"])
+    return {"video": video_embedding}
 
 
 def run(video):
@@ -61,6 +79,8 @@ def run(video):
                     (video_id,),
                 )
                 row = cursor.fetchone()
+                if row is not None:
+                    row[0]["tag_ids"] = get_tag_ids(cursor, row[0].get("tags", []))
 
         if row is None:
             return None
@@ -71,9 +91,11 @@ def run(video):
             with connection:
                 with connection.cursor() as cursor:
                     cursor.execute(
-                        "UPDATE videos SET vectors = %s, indexed = TRUE, processing_now = FALSE "
+                        "UPDATE videos SET vectors = %s, "
+                        "metadata = jsonb_set(metadata, '{tag_ids}', %s::jsonb), "
+                        "indexed = TRUE, processing_now = FALSE "
                         "WHERE hash = %s",
-                        (Json(vectors), video_id),
+                        (Json(vectors), Json(row[0]["tag_ids"]), video_id),
                     )
                     if cursor.rowcount != 1:
                         raise LookupError(f"Video {video_id} disappeared during indexing")
@@ -89,7 +111,7 @@ def run(video):
 
     logging.info(
         "Indexed %s: video=%d dimensions, tags=%d",
-        video_id, len(vectors["video"]), len(vectors["text"]),
+        video_id, len(vectors["video"]), len(row[0]["tag_ids"]),
     )
     return vectors
 

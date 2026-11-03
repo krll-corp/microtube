@@ -6,6 +6,7 @@ from fastapi import Depends, FastAPI, Form, UploadFile
 from psycopg2.extras import Json
 from microtube_auth import require_user
 from microtube_storage import find_video, save_video, video_path
+from microtube_tags import get_tag_ids
 
 connection = psycopg2.connect(database="videos", user=os.getenv("POSTGRES_USER", "admin"), password=os.environ["POSTGRES_PASSWORD"], host="db-videos", port=5432)
 
@@ -45,6 +46,7 @@ def run(
     try:
         with connection:
             with connection.cursor() as cursor:
+                metadata["tag_ids"] = get_tag_ids(cursor, metadata["tags"])
                 cursor.execute(
                     "INSERT INTO videos (hash, metadata, indexed, processing_now) VALUES (%s, %s, %s, %s)",
                     (id, Json(metadata), False, False),
@@ -61,5 +63,6 @@ def run(
         "title": title,
         "description": description,
         "tags": tags.split(),
+        "tag_ids": metadata["tag_ids"],
         "stored": True,
     }
