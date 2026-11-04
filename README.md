@@ -10,27 +10,38 @@ The [home](assets/main-page.png) and [watch-page](assets/video-page.png) renders
 are design targets. The agreed direction combines pixel-style monospaced type,
 square outlines, a white canvas, dark text and a restrained orange accent, with
 [tiny corp](https://tinygrad.org/) as an inspiration for technical minimalism.
-Current frontend styles have not yet been converted to this target; dark mode
-is planned. See the [design rules](AGENTS.md#visual-design-system-all-frontends)
-for the full specification and theme planning.
+All four frontends share this style in light and dark palettes.
+See the [design rules](AGENTS.md#visual-design-system-all-frontends)
+for the full specification.
+The header's split-circle button switches between light and dark; Auto follows
+the system (the default). A `microtube_theme` preference cookie shares that choice
+across frontend ports on the same hostname; it contains no authentication data.
+Interface copy and demo content are in English; uploaded titles, descriptions
+and tags are displayed as entered. The original renders use Ukrainian labels.
+Light UI previews: [home](docs/screenshots/home.jpg),
+[watch](docs/screenshots/watch.jpg), [mobile watch](docs/screenshots/watch-mobile.jpg).
+Dark UI preview: [home and search focus](docs/screenshots/home-dark.jpg).
+Uploaded video with database metadata: [desktop](docs/screenshots/watch-live.jpg),
+[mobile](docs/screenshots/watch-mobile-live.jpg).
 
 ## Current limitations
 
 Implementation and configuration reviewed against repository source on 2026-10-30.
 
-- The main frontend uses demo videos and local filtering. It does not load a
-  catalog or related-video results from PostgreSQL; watch-page metadata is taken
-  from URL parameters or placeholders.
-- Its player requests `/api/video/videos`, but `frontend/main/dockerfile` does not
-  install a proxy for that route. The upload UI's watch link therefore does not
-  provide working playback yet. The direct streaming endpoint remains
-  `http://127.0.0.1:3030/videos?id=<id>`.
+- The home catalog and related-video cards use demo data and local filtering.
+  Real watch pages load their title, description and tag names from PostgreSQL
+  through the metadata endpoint.
+- Demo cards show still images, not playable videos. Their photographs are CSS
+  crops of the supplied renders, served from the read-only `assets/` mount.
+  Uploaded videos use native `<video controls>`; the main frontend proxies
+  `/api/video/videos?id=<id>` to `backend-video:3030/videos?id=<id>`.
 - `GET /search?req=<text>` computes a query embedding and returns a placeholder,
   not ranked results. Indexing currently embeds the video and each tag; title
   and description are stored but do not yet have text embeddings.
-- Some navigation links hardcode `localhost` and ports `8080`-`8083`. Changing
-  Compose port settings does not rewrite those links. Use the same hostname for
-  login and upload so the browser sends the session cookie to both services.
+- Navigation links preserve the current hostname but use default frontend ports
+  `8080`-`8083`. Changing Compose port settings does not rewrite those links.
+  Use the same hostname for login and upload so the browser sends the session
+  cookie to both services.
 - The monitor probes HTTP availability every 30 seconds and stores its history
   in browser local storage. It does not check PostgreSQL or the indexing worker,
   and is not a metrics platform or proof that complete user flows work.
@@ -62,8 +73,28 @@ All CSS lives in `frontend/shared/`: `base.css` holds common rules, and `main.cs
 `auth.css`, `upload.css`, and `monitor.css` contain page-specific rules. Each page
 loads the base first, then its own file. Compose mounts this directory read-only
 at `/usr/share/nginx/html/shared` in all four frontends, served as `/shared/`.
-CSS edits need a browser reload, without rebuilding an image. Run frontends with
-Compose so the mount is present; standalone images do not contain these styles.
+The shared `theme.js` applies the palette before rendering and handles the controls.
+Shared CSS/JS edits need a browser reload, without rebuilding an image. Run
+frontends with Compose so the mount is present; standalone images do not contain
+these shared assets.
+
+The shared directory also serves the local Tiny5 pixel font, including Ukrainian
+Cyrillic. `fonts/Tiny5.woff2` is a static webfont built from
+[Google Fonts' Tiny5 source](https://github.com/google/fonts/tree/main/ofl/tiny5)
+at its default axes; the SIL Open Font License is included in `fonts/OFL.txt`.
+The UI does not request fonts or demo images from third-party servers.
+
+To preview just the UI without starting the AI models:
+
+```bash
+docker compose up -d --build --no-deps frontend-main frontend-upload frontend-auth frontend-monitor
+```
+
+Login, uploads and real playback also need their backend services:
+
+```bash
+docker compose up -d --build backend-auth backend-upload backend-video
+```
 
 Addresses below use the default ports from `.env.example`.
 
@@ -72,7 +103,7 @@ Addresses below use the default ports from `.env.example`.
 | `frontend-main` | http://127.0.0.1:8080 | Demo catalog, local filtering and watch-page UI |
 | `frontend-upload` | http://127.0.0.1:8082 | Creator upload UI with preview and progress |
 | `frontend-monitor` | http://127.0.0.1:8081 | HTTP availability monitor |
-| `frontend-auth` | http://127.0.0.1:8083 | Login and registration form |
+| `frontend-auth` | http://127.0.0.1:8083 | Login, registration and session UI |
 | `backend-video` | http://127.0.0.1:3030/docs | Video streaming with a bounded RAM cache |
 | `backend-text` | http://127.0.0.1:3031/docs | Authenticated text search skeleton |
 | `backend-upload` | http://127.0.0.1:3032/docs | Receives a file and metadata after login |
@@ -89,6 +120,11 @@ case-sensitive and hashed in the browser as `SHA256(SHA256(UTF8(value)))`, with
 the binary digest as input to the second hash. Only the two hexadecimal hashes
 are sent as form fields `login_hash` and `password_hash` and stored in `users`.
 Registration and login return a random token and set an HttpOnly session cookie.
+The auth UI uses `fetch` through its same-origin `/api/auth/` proxy to
+`backend-auth:3033/auth/`. Errors stay beside the form. After registration or login,
+the UI confirms the cookie through `/auth/me` and opens Home. Returning to Account
+checks the session again and offers Sign out. The UI uses the cookie, without storing
+the returned token in JavaScript storage.
 The upload UI sends this cookie with its XMLHttpRequest; API clients can instead
 use `Authorization: Bearer <token>`.
 
@@ -209,6 +245,18 @@ with the unused vision and audio encoders disabled. `TEXT_AI_PORT` defaults to
 that the ID exists in PostgreSQL and that the file exists in `/videos`. HTTP
 `Range` requests support seeking (`206 Partial Content`); `HEAD` returns headers
 without reading the file body. `GET /videos` without an ID is the health check.
+
+`GET /metadata?id=<id>` is public and returns only `id`, `title`, `description`
+and tag names. One SQL query resolves ordered `metadata.tag_ids`; embeddings are
+not included. The main UI calls `/api/video/metadata?id=<id>` once when opening a
+real watch page; upload links contain only `?video=<id>`. Video Range requests
+use the separate streaming URL and carry no JSON metadata.
+
+Metadata responses have `Cache-Control: public, max-age=60, must-revalidate` and
+an ETag derived from their contents. The browser can reuse a fresh response for
+60 seconds; matching `If-None-Match` requests receive `304` without a body.
+Revalidation still reads the database, so this is an HTTP cache rather than a
+second server-side metadata cache. Unknown IDs return `404` without caching.
 
 The process keeps recently requested parts in an LRU RAM cache, capped by
 `VIDEO_CACHE_MB` (default `64` MiB; `0` disables caching). One full part fits the

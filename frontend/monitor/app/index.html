@@ -1,111 +1,113 @@
 <!DOCTYPE html>
-<html lang="uk">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#ffffff">
-    <title>System Status — MicroTube</title>
+    <title>System status — MicroTube</title>
 
-    <link rel="stylesheet" href="/shared/base.css">
+    <script src="/shared/theme.js?v=2"></script>
+    <link rel="stylesheet" href="/shared/base.css?v=4">
     <link rel="stylesheet" href="/shared/monitor.css">
 </head>
 
 <body>
-<div class="shell">
-    <header>
-        <a class="brand" href="http://localhost:8080/">
-            <span class="brand-icon">m</span>
-            <span>microtube status</span>
-        </a>
-        <a class="header-link" href="http://localhost:8080/">
-            Повернутися до MicroTube →
-        </a>
+<div class="site-shell">
+    <header class="site-header">
+        <a class="brand" href="/" data-port="8080">microtube</a>
+        <nav class="header-actions" aria-label="Navigation">
+            <a href="/" data-port="8080">Home</a>
+            <a href="/" data-port="8082">Upload</a>
+            <div class="theme-control">
+                <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Dark theme" aria-pressed="false">
+                    <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M12 3a9 9 0 0 0 0 18Z" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button id="theme-auto" class="theme-auto" type="button" aria-label="Use system theme" aria-pressed="true">Auto</button>
+            </div>
+        </nav>
     </header>
 
-    <main>
-        <div class="page-eyebrow">Стан платформи</div>
-        <h1>Стан системи MicroTube</h1>
-        <p class="subtitle">
-            Поточна доступність вебінтерфейсів, API та AI-компонентів.
-        </p>
+    <main class="monitor-page">
+        <h1>System status</h1>
 
-        <section class="overall loading" id="overall">
+        <section class="overall loading" id="overall" role="status" aria-live="polite">
             <div class="overall-heading">
-                <div class="overall-icon" id="overall-icon">…</div>
+                <span id="overall-icon" aria-hidden="true">…</span>
                 <div class="overall-title" id="overall-title">
-                    Перевіряємо компоненти системи
+                    Checking system components
                 </div>
             </div>
             <p class="overall-detail" id="overall-detail">
-                Виконується перша перевірка доступності.
+                Running the first availability check.
             </p>
         </section>
 
         <div class="toolbar">
-            <h2>Компоненти</h2>
-            <div>
+            <h2>Components</h2>
+            <div class="monitor-controls">
                 <div class="last-updated" id="last-updated">
-                    Очікування перевірки
+                    Waiting for checks
                 </div>
-                <button type="button" class="refresh-button"
-                        id="refresh-button" style="margin-top:8px">
-                    Перевірити зараз
+                <button type="button" class="button" id="refresh-button">
+                    Check now
                 </button>
             </div>
         </div>
 
         <div id="components">
-            <p class="subtitle">Завантаження станів сервісів…</p>
+            <p class="subtitle">Loading service status…</p>
         </div>
 
         <div class="note">
-            <strong>Про ці перевірки.</strong>
-            Статуси відображають результат HTTP-запитів із браузера через
-            внутрішній проксі. Зелений статус означає, що перевірений
-            ендпоінт відповів успішно, але не гарантує, що кожна функція
-            сервісу працює без помилок. Історія зберігається локально
-            в цьому браузері.
-            <br><br>
-            Бази PostgreSQL та фоновий сервіс індексації не мають окремої
-            HTTP-перевірки в цій версії. Для повного моніторингу потрібні
-            окремі health-check або Prometheus/Grafana.
+            These checks measure HTTP availability. Databases, indexing
+            and complete user flows are not checked here.
+            History is stored only in this browser.
         </div>
     </main>
 
-    <footer>
-        MicroTube Status · Автоматична перевірка кожні 30 секунд
+    <footer class="monitor-footer">
+        Automatically refreshed every 30 seconds
     </footer>
 </div>
 
 <script>
 (() => {
+    document.querySelectorAll("[data-port]").forEach(link => {
+        const target = new URL("/", location.href);
+        target.port = link.dataset.port;
+        link.href = target.href;
+    });
+
     const services = [
         {
-            group: "Фронтенди",
+            group: "Frontends",
             id: "main-ui",
-            name: "Основний інтерфейс",
-            description: "Каталог і перегляд відео",
+            name: "Main interface",
+            description: "Video catalogue and playback",
             endpoint: "/checks/main"
         },
         {
-            group: "Фронтенди",
+            group: "Frontends",
             id: "auth-ui",
-            name: "Автентифікація",
-            description: "Сторінка входу й реєстрації",
+            name: "Authentication",
+            description: "Sign-in and registration page",
             endpoint: "/checks/auth-ui"
         },
         {
-            group: "Фронтенди",
+            group: "Frontends",
             id: "upload-ui",
             name: "Creator Studio",
-            description: "Інтерфейс завантаження відео",
+            description: "Video upload interface",
             endpoint: "/checks/upload-ui"
         },
         {
-            group: "Фронтенди",
+            group: "Frontends",
             id: "monitor-ui",
             name: "MicroTube Status",
-            description: "Поточна сторінка моніторингу",
+            description: "This monitoring page",
             endpoint: "/checks/monitor"
         },
         {
@@ -119,14 +121,14 @@
             group: "Backend API",
             id: "video-api",
             name: "Video API",
-            description: "Перевірка ендпоінта /videos",
+            description: "The /videos endpoint",
             endpoint: "/checks/video-api"
         },
         {
             group: "Backend API",
             id: "upload-api",
             name: "Upload API",
-            description: "Документація API",
+            description: "API documentation",
             endpoint: "/checks/upload-api"
         },
         {
@@ -137,14 +139,14 @@
             endpoint: "/checks/text-api"
         },
         {
-            group: "AI-сервіси",
+            group: "AI services",
             id: "ai-video",
             name: "Video AI",
             description: "OpenAPI endpoint",
             endpoint: "/checks/ai-video"
         },
         {
-            group: "AI-сервіси",
+            group: "AI services",
             id: "ai-text",
             name: "Text AI",
             description: "OpenAPI endpoint",
@@ -194,23 +196,26 @@
     function historyMarkup(id) {
         const items = history[id] || [];
         const padding = Math.max(0, HISTORY_LIMIT - items.length);
+        const successful = items.filter(item => item.ok).length;
+        const failed = items.length - successful;
 
         let bars = "";
 
         for (let i = 0; i < padding; i++) {
-            bars += '<span class="history-bar checking" title="Ще немає даних"></span>';
+            bars += '<span class="history-bar checking" title="No data yet"></span>';
         }
 
         items.forEach(item => {
             const cls = item.ok ? "ok" : "fail";
-            const title = item.ok ? "Успішна перевірка" : "Помилка перевірки";
+            const title = item.ok ? "Check passed" : "Check failed";
 
             bars += `<span class="history-bar ${cls}"
                 title="${title}"></span>`;
         });
 
-        return `<div class="history">${bars}</div>
-            <div class="history-note">Останні ${items.length} перевірок</div>`;
+        return `<div class="history" role="img"
+                aria-label="Recent checks: ${items.length}. Passed: ${successful}. Failed: ${failed}.">${bars}</div>
+            <div class="history-note">Recent checks: ${items.length}</div>`;
     }
 
     function render() {
@@ -224,7 +229,7 @@
                     <div class="group-title">
                         <h3>${escapeHtml(group)}</h3>
                         <span class="group-count">
-                            ${groupServices.length} компонентів
+                            ${groupServices.length} components
                         </span>
                     </div>
 
@@ -233,13 +238,13 @@
                         const latest = item[item.length - 1];
 
                         let stateClass = "checking";
-                        let stateText = "Очікує перевірки";
+                        let stateText = "Pending";
                         let latency = "—";
 
                         if (latest) {
                             stateClass = latest.ok ? "operational" : "down";
-                            stateText = latest.ok ? "Працює" : "Недоступний";
-                            latency = latest.ok ? `${latest.ms} мс` : "Помилка";
+                            stateText = latest.ok ? "Operational" : "Unavailable";
+                            latency = latest.ok ? `${latest.ms} ms` : "Error";
                         }
 
                         return `
@@ -255,16 +260,14 @@
 
                                 <div class="service-status">
                                     <span class="status-label ${stateClass}">
-                                        <span class="dot"></span>
                                         ${stateText}
                                     </span>
+                                    <small class="latency">${latency}</small>
                                 </div>
 
                                 <div class="service-history">
                                     ${historyMarkup(service.id)}
                                 </div>
-
-                                <div class="latency">${latency}</div>
                             </div>
                         `;
                     }).join("")}
@@ -285,31 +288,31 @@
         if (completed.length === 0) {
             overall.className = "overall loading";
             overallIcon.textContent = "…";
-            overallTitle.textContent = "Перевіряємо компоненти системи";
-            overallDetail.textContent = "Очікуємо результати HTTP-перевірок.";
+            overallTitle.textContent = "Checking system components";
+            overallDetail.textContent = "Waiting for HTTP check results.";
         } else if (failed.length > 0) {
             overall.className = "overall degraded";
             overallIcon.textContent = "!";
-            overallTitle.textContent = "Виявлено проблеми з доступністю";
+            overallTitle.textContent = "Availability issues detected";
             overallDetail.textContent =
-                `${failed.length} із ${services.length} компонентів не відповіли успішно. Перевір журнали відповідних сервісів.`;
+                `${failed.length} of ${services.length} components failed their checks. Check the corresponding service logs.`;
         } else if (completed.length === services.length) {
             overall.className = "overall";
             overallIcon.textContent = "✓";
-            overallTitle.textContent = "Усі перевірені системи працюють";
+            overallTitle.textContent = "All checked services are available";
             overallDetail.textContent =
-                `Усі ${services.length} HTTP-перевірок успішні. Це не є перевіркою баз даних або внутрішніх функцій сервісів.`;
+                `All ${services.length} HTTP checks passed. This does not verify databases or internal service functions.`;
         } else {
             overall.className = "overall loading";
             overallIcon.textContent = "…";
-            overallTitle.textContent = "Перевірка триває";
+            overallTitle.textContent = "Checks in progress";
             overallDetail.textContent =
-                `Отримано результатів: ${completed.length} із ${services.length}.`;
+                `Results received: ${completed.length} of ${services.length}.`;
         }
 
         if (lastUpdated.dataset.time) {
             lastUpdated.textContent =
-                `Оновлено: ${new Date(Number(lastUpdated.dataset.time)).toLocaleTimeString("uk-UA")}`;
+                `Updated: ${new Date(Number(lastUpdated.dataset.time)).toLocaleTimeString("en-GB")}`;
         }
     }
 
@@ -344,7 +347,7 @@
 
         checking = true;
         refreshButton.disabled = true;
-        refreshButton.textContent = "Перевіряємо…";
+        refreshButton.textContent = "Checking…";
 
         const results = await Promise.all(
             services.map(async service => ({
@@ -367,7 +370,7 @@
         try {
             localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
         } catch (error) {
-            console.warn("Не вдалося зберегти історію перевірок.", error);
+            console.warn("Could not save check history.", error);
         }
 
         lastUpdated.dataset.time = String(Date.now());
@@ -375,7 +378,7 @@
 
         checking = false;
         refreshButton.disabled = false;
-        refreshButton.textContent = "Перевірити зараз";
+        refreshButton.textContent = "Check now";
     }
 
     refreshButton.addEventListener("click", runChecks);

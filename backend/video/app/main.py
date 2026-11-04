@@ -3,12 +3,13 @@ import re
 from collections import OrderedDict
 from contextlib import closing
 from email.utils import formatdate
+from hashlib import sha256
 from secrets import token_hex
 from threading import Lock
 
 import psycopg2
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from microtube_storage import find_video, open_video
 
 CACHE_LIMIT = max(0, int(os.getenv("VIDEO_CACHE_MB", "64"))) * 1024 * 1024
@@ -16,6 +17,42 @@ CHUNK_SIZE = 1024 * 1024
 cache = OrderedDict()
 cache_lock = Lock()
 app = FastAPI()
+
+
+def connect():
+    return psycopg2.connect(
+        database="videos",
+        user=os.getenv("POSTGRES_USER", "admin"),
+        password=os.environ["POSTGRES_PASSWORD"],
+        host="db-videos",
+        connect_timeout=5,
+    )
+
+
+@app.get("/metadata")
+def metadata(request: Request, id: str = Query(pattern=r"^[A-Za-z0-9_-]{8}$")):
+    with closing(connect()) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT metadata->>'title', metadata->>'description', "
+                "COALESCE((SELECT jsonb_agg(tags.tag ORDER BY ids.position) "
+                "FROM jsonb_array_elements_text(videos.metadata->'tag_ids') "
+                "WITH ORDINALITY AS ids(value, position) "
+                "JOIN tags ON tags.tag_id = ids.value::bigint), '[]'::jsonb) "
+                "FROM videos WHERE hash = %s",
+                (id,),
+            )
+            row = cursor.fetchone()
+    if row is None:
+        raise HTTPException(404, "Video not found", headers={"Cache-Control": "no-store"})
+    response = JSONResponse({"id": id, "title": row[0], "description": row[1], "tags": row[2]})
+    etag = f'"{sha256(response.body).hexdigest()}"'
+    headers = {"ETag": etag, "Cache-Control": "public, max-age=60, must-revalidate"}
+    if any(value.strip() in (etag, "W/" + etag, "*")
+           for value in request.headers.get("if-none-match", "").split(",")):
+        return Response(status_code=304, headers=headers)
+    response.headers.update(headers)
+    return response
 
 
 def byte_ranges(value, size):
@@ -143,13 +180,7 @@ def load(request: Request, id: str | None = Query(default=None, pattern=r"^[A-Za
     if id is None:
         return {"status": "ok"}
 
-    with closing(psycopg2.connect(
-        database="videos",
-        user=os.getenv("POSTGRES_USER", "admin"),
-        password=os.environ["POSTGRES_PASSWORD"],
-        host="db-videos",
-        connect_timeout=5,
-    )) as connection:
+    with closing(connect()) as connection:
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1 FROM videos WHERE hash = %s", (id,))
             if cursor.fetchone() is None:
