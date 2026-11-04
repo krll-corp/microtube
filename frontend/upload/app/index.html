@@ -229,15 +229,8 @@
                 );
 
                 const link = document.createElement("a");
-                const params = new URLSearchParams({
-                    video: result.id,
-                    title: result.title || "",
-                    description: result.description || "",
-                    tags: Array.isArray(result.tags) ? result.tags.join(" ") : ""
-                });
-
                 const watchURL = serviceURL(8080);
-                watchURL.search = params.toString();
+                watchURL.search = new URLSearchParams({video: result.id}).toString();
                 link.href = watchURL.href;
                 link.textContent = "Watch video";
                 link.className = "watch-link";

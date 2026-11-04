@@ -51,8 +51,6 @@ services:
     build:
       context: ./frontend/auth
       dockerfile: dockerfile
-    environment:
-      AUTH_API_PORT: ${AUTH_API_PORT:-3033}
     volumes:
       - ./frontend/shared:/usr/share/nginx/html/shared:ro
     ports:

@@ -21,14 +21,16 @@ and tags are displayed as entered. The original renders use Ukrainian labels.
 Light UI previews: [home](docs/screenshots/home.jpg),
 [watch](docs/screenshots/watch.jpg), [mobile watch](docs/screenshots/watch-mobile.jpg).
 Dark UI preview: [home and search focus](docs/screenshots/home-dark.jpg).
+Uploaded video with database metadata: [desktop](docs/screenshots/watch-live.jpg),
+[mobile](docs/screenshots/watch-mobile-live.jpg).
 
 ## Current limitations
 
 Implementation and configuration reviewed against repository source on 2026-10-30.
 
-- The main frontend uses demo videos and local filtering. It does not load a
-  catalog or related-video results from PostgreSQL; watch-page metadata is taken
-  from URL parameters or placeholders.
+- The home catalog and related-video cards use demo data and local filtering.
+  Real watch pages load their title, description and tag names from PostgreSQL
+  through the metadata endpoint.
 - Demo cards show still images, not playable videos. Their photographs are CSS
   crops of the supplied renders, served from the read-only `assets/` mount.
   Uploaded videos use native `<video controls>`; the main frontend proxies
@@ -243,6 +245,18 @@ with the unused vision and audio encoders disabled. `TEXT_AI_PORT` defaults to
 that the ID exists in PostgreSQL and that the file exists in `/videos`. HTTP
 `Range` requests support seeking (`206 Partial Content`); `HEAD` returns headers
 without reading the file body. `GET /videos` without an ID is the health check.
+
+`GET /metadata?id=<id>` is public and returns only `id`, `title`, `description`
+and tag names. One SQL query resolves ordered `metadata.tag_ids`; embeddings are
+not included. The main UI calls `/api/video/metadata?id=<id>` once when opening a
+real watch page; upload links contain only `?video=<id>`. Video Range requests
+use the separate streaming URL and carry no JSON metadata.
+
+Metadata responses have `Cache-Control: public, max-age=60, must-revalidate` and
+an ETag derived from their contents. The browser can reuse a fresh response for
+60 seconds; matching `If-None-Match` requests receive `304` without a body.
+Revalidation still reads the database, so this is an HTTP cache rather than a
+second server-side metadata cache. Unknown IDs return `404` without caching.
 
 The process keeps recently requested parts in an LRU RAM cache, capped by
 `VIDEO_CACHE_MB` (default `64` MiB; `0` disables caching). One full part fits the

@@ -49,6 +49,7 @@
     const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, char => ({
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
     })[char]);
+    let navigation = 0;
 
     function spriteStyle(crop, hideDuration = false) {
         let [x, y, width, height] = crop;
@@ -91,7 +92,7 @@
                 <p>Try another search or <a href="/">browse all videos</a>.</p></div>`}`;
     }
 
-    function renderWatch(params) {
+    async function renderWatch(params, version) {
         const demoId = params.get("demo");
         const demo = videos.find(video => video.id === demoId);
         const id = params.get("video");
@@ -100,9 +101,30 @@
             app.innerHTML = '<div class="empty-state"><h1>Video not found</h1><a href="/">Back to catalog</a></div>';
             return;
         }
-        const title = demo?.title || params.get("title") || "Video on MicroTube";
-        const description = demo?.description || params.get("description") || "";
-        const tags = demo?.tags || (params.get("tags") || "").split(/[\s,]+/).filter(Boolean);
+        let details = demo;
+        if (!demo) {
+            app.innerHTML = '<p class="notice" role="status">Loading video...</p>';
+            try {
+                const response = await fetch(`/api/video/metadata?id=${encodeURIComponent(id)}`);
+                if (!response.ok) {
+                    const error = new Error();
+                    error.status = response.status;
+                    throw error;
+                }
+                details = await response.json();
+            } catch (error) {
+                if (version !== navigation) return;
+                const message = error.status === 404 ? "Video not found" : "Could not load video details";
+                document.title = `${message} — MicroTube`;
+                app.innerHTML = `<div class="empty-state" role="alert"><h1>${message}</h1>
+                    <a href="/">Back to catalog</a></div>`;
+                return;
+            }
+            if (version !== navigation) return;
+        }
+        const title = details.title || "Video on MicroTube";
+        const description = details.description || "";
+        const tags = details.tags || [];
         const related = videos.filter(video => video.id !== demoId).slice(0, 3);
         const reference = demo?.id === "demo-1";
         const previewStyle = demo && spriteStyle(reference ? [36, 165, 1089, 594] : demo.crop, !reference);
@@ -129,8 +151,9 @@
     }
 
     function route() {
+        const version = ++navigation;
         const params = new URLSearchParams(location.search);
-        if (params.has("demo") || params.has("video")) renderWatch(params);
+        if (params.has("demo") || params.has("video")) renderWatch(params, version);
         else renderHome(params);
     }
 

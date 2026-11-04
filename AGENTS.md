@@ -259,6 +259,11 @@ gradients and avatars from older implementations are not design precedent.
   `/assets/`; demo watch pages show a labeled still. Real watch pages use native
   video controls and `/api/video/videos`, proxied by `frontend/main/nginx.conf`
   to `backend-video:3030/videos`. Related cards are still demo data.
+- Public `GET /metadata?id=<id>` returns the title, description and ordered tag
+  names in one SQL query, without embeddings. Real watch pages fetch it through
+  `/api/video/metadata`; share/upload links contain only the video ID. Responses
+  use a 60-second public HTTP cache and ETag/304 validation. Fresh browser cache
+  hits avoid the API; revalidation still queries PostgreSQL.
 - Server-side media validation is incomplete; HTML `accept="video/mp4"` only
   affects the file picker. Treat UI placeholders and historical reports accordingly.
 
