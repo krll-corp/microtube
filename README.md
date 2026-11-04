@@ -124,6 +124,9 @@ to `/api/upload/upload` on port `8082`, proxied to `backend-upload:3032/upload`.
 Tags are separated by whitespace. The UI shows upload progress and the server's
 response. The endpoint stores MP4 bytes in `/videos/<id[:2]>/<id[2:]>/`,
 writes its metadata to PostgreSQL, and returns `stored: true`.
+Each upload opens its own PostgreSQL connection after saving the file. Tag
+allocation and video insertion share one transaction; the connection is closed
+after commit or rollback. A connection or insertion failure removes the new file.
 The metadata JSON and upload response include `owner_hash`, taken from the
 authenticated session's `login_hash`. A form field cannot override this value.
 Existing videos without an owner need an explicit assignment; their original

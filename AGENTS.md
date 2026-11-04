@@ -198,7 +198,8 @@ precedent. Do not treat them as authorization to continue that visual language.
   form field cannot override it. This JSON reference is not a database foreign key.
   Older records may lack an owner; do not invent one without an explicit mapping.
 - Keep SQL parameterized and use `psycopg2.extras.Json` for JSONB values. The upload
-  service removes its newly stored file if the database insertion fails.
+  service uses a separate connection and transaction per request, closes it after
+  commit/rollback, and removes its newly stored file if connection/insertion fails.
 
 ### Authentication
 
