@@ -76,6 +76,7 @@ Nginx configuration when relevant. Each service has its own lowercase `dockerfil
 | `backend/upload/` | Authenticated upload, file storage, metadata insertion | 3032 |
 | `backend/auth/` | Registration, login, logout and in-memory sessions | 3033 |
 | `backend/shared/microtube_auth.py` | Shared session lookup and FastAPI dependency | None |
+| `backend/shared/microtube_embeddings.py` | HTTP embedding client and response validation for text/indexing | None |
 | `backend/shared/microtube_storage.py` | Shared video path lookup for upload, streaming and video AI | None |
 | `backend/indexing/` | Background indexing worker, no HTTP API | None |
 | `backend/ai/video/` | Video embedding API | 4001 |

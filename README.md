@@ -190,6 +190,13 @@ continue processing. Session locks are released on disconnect, so interrupted
 videos can be picked up again even if `processing_now` was left true.
 Completed videos are skipped. Successes and errors are logged.
 
+`backend-text` and `backend-indexing` share the HTTP embedding client and
+768-dimensional response validation in `backend/shared/microtube_embeddings.py`.
+Compose mounts it read-only at `/shared`; restart both consumers after editing it.
+The current text-search skeleton uses AI and authentication; it has no direct
+database dependency. Rebuild it after updating its Dockerfile:
+`docker compose up -d --build --no-deps backend-text backend-indexing`.
+
 `GET /embedding/text?text=dog` returns a normalized 768-dimensional vector. The
 text service uses the same model and shared model cache as the video service,
 with the unused vision and audio encoders disabled. `TEXT_AI_PORT` defaults to

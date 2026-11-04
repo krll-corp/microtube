@@ -1,12 +1,11 @@
 import logging
-import math
 import os
 import time
 from contextlib import closing
 
 import psycopg2
-import requests
 from psycopg2.extras import Json, RealDictCursor
+from microtube_embeddings import get_embedding
 
 
 def connect():
@@ -17,19 +16,6 @@ def connect():
         host="db-videos",
         port=5432,
     )
-
-
-def get_embedding(url, params):
-    response = requests.get(url, params=params, timeout=600)
-    response.raise_for_status()
-    embedding = response.json()
-    if (
-        not isinstance(embedding, list)
-        or len(embedding) != 768
-        or not all(type(value) in (int, float) and math.isfinite(value) for value in embedding)
-    ):
-        raise ValueError(f"Invalid embedding from {url}")
-    return embedding
 
 
 def index_tags(tag_ids):
