@@ -16,9 +16,9 @@ for the full specification.
 The header's split-circle button switches between light and dark; Auto follows
 the system (the default). A `microtube_theme` preference cookie shares that choice
 across frontend ports on the same hostname; it contains no authentication data.
-Interface copy and demo content are in English; uploaded titles, descriptions
+Interface copy is in English; uploaded titles, descriptions
 and tags are displayed as entered. The original renders use Ukrainian labels.
-Light UI previews: [home](docs/screenshots/home.jpg),
+Earlier UI previews with demo content: [light home](docs/screenshots/home.jpg),
 [watch](docs/screenshots/watch.jpg), [mobile watch](docs/screenshots/watch-mobile.jpg).
 Dark UI preview: [home and search focus](docs/screenshots/home-dark.jpg).
 Uploaded video with database metadata: [desktop](docs/screenshots/watch-live.jpg),
@@ -28,16 +28,15 @@ Uploaded video with database metadata: [desktop](docs/screenshots/watch-live.jpg
 
 Implementation and configuration reviewed against repository source on 2026-10-30.
 
-- The home catalog and related-video cards use demo data and local filtering.
-  Real watch pages load their title, description and tag names from PostgreSQL
-  through the metadata endpoint.
-- Demo cards show still images, not playable videos. Their photographs are CSS
-  crops of the supplied renders, served from the read-only `assets/` mount.
+- The home catalog loads real videos from PostgreSQL in ID order, 24 at a time,
+  loading the next page on scroll. Previews and durations are placeholders;
+  these values are not stored yet. Related-video recommendations are still planned.
+- Watch pages load their title, description and tags through the metadata endpoint.
   Uploaded videos use native `<video controls>`; the main frontend proxies
   `/api/video/videos?id=<id>` to `backend-video:3030/videos?id=<id>`.
 - `GET /search?req=<text>` ranks indexed videos using pgvector cosine similarity.
-  Ranking currently scans the video and tag vectors exactly; the main UI still
-  filters demo data. Titles and descriptions have no embeddings yet.
+  Ranking currently scans the video and tag vectors exactly; the main UI has a
+  local title filter instead. Titles and descriptions have no embeddings yet.
 - Navigation links preserve the current hostname but use default frontend ports
   `8080`-`8083`. Changing Compose port settings does not rewrite those links.
   Use the same hostname for login and upload so the browser sends the session
@@ -82,7 +81,7 @@ The shared directory also serves the local Tiny5 pixel font, including Ukrainian
 Cyrillic. `fonts/Tiny5.woff2` is a static webfont built from
 [Google Fonts' Tiny5 source](https://github.com/google/fonts/tree/main/ofl/tiny5)
 at its default axes; the SIL Open Font License is included in `fonts/OFL.txt`.
-The UI does not request fonts or demo images from third-party servers.
+The UI does not request fonts or media from third-party servers.
 
 To preview just the UI without starting the AI models:
 
@@ -100,7 +99,7 @@ Addresses below use the default ports from `.env.example`.
 
 | Service | Local address | Current role |
 | --- | --- | --- |
-| `frontend-main` | http://127.0.0.1:8080 | Demo catalog, local filtering and watch-page UI |
+| `frontend-main` | http://127.0.0.1:8080 | Database catalog, local title filter and watch-page UI |
 | `frontend-upload` | http://127.0.0.1:8082 | Creator upload UI with preview and progress |
 | `frontend-monitor` | http://127.0.0.1:8081 | HTTP availability monitor |
 | `frontend-auth` | http://127.0.0.1:8083 | Login, registration and session UI |
@@ -259,6 +258,16 @@ not connected to this API yet.
 that the ID exists in PostgreSQL and that the file exists in `/videos`. HTTP
 `Range` requests support seeking (`206 Partial Content`); `HEAD` returns headers
 without reading the file body. `GET /videos` without an ID is the health check.
+
+Public `GET /catalog?limit=24&after=<id>` returns `items` containing only `id` and
+`title`, plus `next_after` (null on the last page). Omit `after` for the first page;
+`limit` defaults to 24 and accepts 1–100. Results are ordered by ID, independent of
+AI indexing status. This is not upload-date ordering. The query uses a primary-key
+range and returns at most `limit + 1` rows, without loading embeddings or counting all
+videos. The frontend calls `/api/video/catalog` and loads more when the end of the
+grid approaches the viewport, without a pagination button. Its title filter is
+local; it does not call the authenticated semantic-search API. Preview and duration
+placeholders do not request video bytes; playback starts on the watch page.
 
 `GET /metadata?id=<id>` is public and returns only `id`, `title`, `description`
 and tag names. One SQL query resolves ordered `metadata.tag_ids`; embeddings are

@@ -66,7 +66,7 @@ Nginx configuration when relevant. Each service has its own lowercase `dockerfil
 
 | Path | Responsibility | Default host port |
 | --- | --- | --- |
-| `frontend/main/` | Home, search and player UI prototype; includes demo data | 8080 |
+| `frontend/main/` | Database catalog, local title filter and player UI | 8080 |
 | `frontend/monitor/` | HTTP availability probes through `nginx.conf` | 8081 |
 | `frontend/upload/` | Creator upload UI; `/api/upload/` Nginx proxy | 8082 |
 | `frontend/auth/` | Session UI, browser credential hashing; `/api/auth/` proxy | 8083 |
@@ -258,11 +258,15 @@ gradients and avatars from older implementations are not design precedent.
   `tags.vector` and `metadata.tag_ids`, scoring shared tags once per query. It
   performs an exact cosine scan and top-k before metadata retrieval, not ANN search.
   Frontend integration and related-video lookup remain future work.
-- Main-page demo cards and client-side filtering do not prove database integration.
-  Demo photos are CSS crops of the supplied renders, mounted read-only at
-  `/assets/`; demo watch pages show a labeled still. Real watch pages use native
-  video controls and `/api/video/videos`, proxied by `frontend/main/nginx.conf`
-  to `backend-video:3030/videos`. Related cards are still demo data.
+- Public `GET /catalog?limit=24&after=<id>` returns `items` (`id`, `title`) and
+  `next_after` (null on the last page). It orders by primary-key ID, not upload
+  date; includes unindexed uploads; and returns at most `limit + 1` rows. Limit is
+  1–100. The main UI loads 24 at a time through `/api/video/catalog` on scroll,
+  without a pagination button. Previews and durations are explicit placeholders,
+  with no video-byte requests. The title filter is local; semantic search is not
+  connected yet. Related-video recommendations have an empty placeholder.
+- Watch pages use native video controls and `/api/video/videos`, proxied by
+  `frontend/main/nginx.conf` to `backend-video:3030/videos`.
 - Public `GET /metadata?id=<id>` returns the title, description and ordered tag
   names in one SQL query, without embeddings. Real watch pages fetch it through
   `/api/video/metadata`; share/upload links contain only the video ID. Responses

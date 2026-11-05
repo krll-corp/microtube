@@ -9,17 +9,17 @@
     <script src="/shared/theme.js?v=2"></script>
     <link rel="stylesheet" href="/shared/base.css?v=4">
     <link rel="stylesheet" href="/shared/main.css">
-    <script defer src="/app.js?v=2"></script>
+    <script defer src="/app.js?v=3"></script>
 </head>
 <body>
     <div class="site-shell">
         <header class="site-header">
             <a class="brand" href="/" aria-label="MicroTube — home">microtube</a>
             <form class="search-form" id="search-form" role="search">
-                <button type="submit" aria-label="Find videos">
+                <button type="submit" aria-label="Filter loaded titles">
                     <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></svg>
                 </button>
-                <input id="global-search" name="search" type="search" placeholder="Search videos" aria-label="Search videos">
+                <input id="global-search" name="search" type="search" placeholder="Filter loaded titles" aria-label="Filter loaded titles">
             </form>
             <nav class="header-actions" aria-label="Account">
                 <a id="upload-link" href="http://localhost:8082/">Upload</a>
@@ -37,7 +37,7 @@
         </header>
         <main id="app-main"><p>Loading…</p></main>
         <footer class="catalog-footer">
-            <span>Demo catalog · local search</span>
+            <span>Video catalog</span>
             <a id="status-link" href="http://localhost:8081/">System status</a>
         </footer>
     </div>

@@ -29,6 +29,25 @@ def connect():
     )
 
 
+@app.get("/catalog")
+def catalog(
+    limit: int = Query(default=24, ge=1, le=100),
+    after: str | None = Query(default=None, pattern=r"^[A-Za-z0-9_-]{8}$"),
+):
+    with closing(connect()) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT hash, metadata->>'title' FROM videos "
+                "WHERE hash > %s ORDER BY hash LIMIT %s",
+                (after or "", limit + 1),
+            )
+            rows = cursor.fetchall()
+    return {
+        "items": [{"id": row[0], "title": row[1]} for row in rows[:limit]],
+        "next_after": rows[limit - 1][0] if len(rows) > limit else None,
+    }
+
+
 @app.get("/metadata")
 def metadata(request: Request, id: str = Query(pattern=r"^[A-Za-z0-9_-]{8}$")):
     with closing(connect()) as connection:
