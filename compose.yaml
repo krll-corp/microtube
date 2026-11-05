@@ -93,11 +93,15 @@ services:
       dockerfile: dockerfile
     environment:
       PYTHONPATH: /shared
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
       - ./backend/shared:/shared:ro
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${TEXT_API_PORT:-3031}:3031"
     depends_on:
+      db-videos:
+        condition: service_healthy
       backend-auth:
         condition: service_healthy
     restart: unless-stopped

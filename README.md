@@ -35,9 +35,9 @@ Implementation and configuration reviewed against repository source on 2026-10-3
   crops of the supplied renders, served from the read-only `assets/` mount.
   Uploaded videos use native `<video controls>`; the main frontend proxies
   `/api/video/videos?id=<id>` to `backend-video:3030/videos?id=<id>`.
-- `GET /search?req=<text>` computes a query embedding and returns a placeholder,
-  not ranked results. Indexing currently embeds the video and each tag; title
-  and description are stored but do not yet have text embeddings.
+- `GET /search?req=<text>` ranks indexed videos using pgvector cosine similarity.
+  Ranking currently scans the video and tag vectors exactly; the main UI still
+  filters demo data. Titles and descriptions have no embeddings yet.
 - Navigation links preserve the current hostname but use default frontend ports
   `8080`-`8083`. Changing Compose port settings does not rewrite those links.
   Use the same hostname for login and upload so the browser sends the session
@@ -105,7 +105,7 @@ Addresses below use the default ports from `.env.example`.
 | `frontend-monitor` | http://127.0.0.1:8081 | HTTP availability monitor |
 | `frontend-auth` | http://127.0.0.1:8083 | Login, registration and session UI |
 | `backend-video` | http://127.0.0.1:3030/docs | Video streaming with a bounded RAM cache |
-| `backend-text` | http://127.0.0.1:3031/docs | Authenticated text search skeleton |
+| `backend-text` | http://127.0.0.1:3031/docs | Authenticated cosine similarity search |
 | `backend-upload` | http://127.0.0.1:3032/docs | Receives a file and metadata after login |
 | `backend-auth` | http://127.0.0.1:3033/docs | Registration, login, logout and session information |
 | `backend-indexing` | No HTTP endpoint | Background worker saving video and tag embeddings |
@@ -194,7 +194,7 @@ and embedding across videos.
 `videos.vector` and `tags.vector` both use pgvector `vector(768)` and are NULL
 until indexing. They reject zero vectors; the type checks dimensions and finite
 values. `tags` has an HNSW cosine index; a video index is deferred until benchmarks.
-Recommendation/search endpoints do not yet use the new storage. The videos image
+Text search uses these vectors; related-video lookup is still planned. The videos image
 builds pgvector 0.8.7 on the existing PostgreSQL 16 Alpine base; the users database
 is unchanged.
 
@@ -232,14 +232,28 @@ Completed videos are skipped. Successes and errors are logged.
 `backend-text` and `backend-indexing` share the HTTP embedding client and
 768-dimensional response validation in `backend/shared/microtube_embeddings.py`.
 Compose mounts it read-only at `/shared`; restart both consumers after editing it.
-The current text-search skeleton uses AI and authentication; it has no direct
-database dependency. Rebuild it after updating its Dockerfile:
-`docker compose up -d --build --no-deps backend-text backend-indexing`.
+Text search also connects to `db-videos`; Compose supplies its database credentials.
+After updating it, run `docker compose up -d --build backend-text backend-ai-text`.
 
 `GET /embedding/text?text=dog` returns a normalized 768-dimensional vector. The
 text service uses the same model and shared model cache as the video service,
 with the unused vision and audio encoders disabled. `TEXT_AI_PORT` defaults to
 `4002` on the host; both AI containers use port `4001` internally.
+
+`GET /search?req=fox&limit=20` requires a session and returns a ranked JSON list.
+`limit` defaults to 20 and accepts 1–100; blank queries are rejected. Each result
+contains `id`, `metadata`, `score`, `video_score` and `tag_score`. The last two are
+the video cosine and the best tag cosine, or `null` if that vector is absent.
+The combined score is currently their maximum; this choice is provisional.
+Only indexed videos with at least one non-NULL video or tag vector participate.
+Embedding-service failures and invalid query vectors return 502.
+
+`backend/text/app/search.sql` uses `videos.vector`, `tags.vector` and
+`metadata.tag_ids`; it needs the current pgvector schema, without a new migration.
+Each shared tag is scored once per query. PostgreSQL computes top-k before
+fetching result metadata, so stored vectors are not sent to the search service.
+This is an exact scan, not ANN lookup through the HNSW index. The frontend is
+not connected to this API yet.
 
 `GET /videos?id=<id>` on `backend-video` streams an uploaded MP4 inline. It checks
 that the ID exists in PostgreSQL and that the file exists in `/videos`. HTTP

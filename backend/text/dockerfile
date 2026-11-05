@@ -2,7 +2,7 @@ from python:3.13
 
 workdir /app
 
-run ["pip", "install", "fastapi", "uvicorn", "requests"]
+run ["pip", "install", "fastapi", "uvicorn", "requests", "psycopg2-binary"]
 
 copy app .
 expose 3031
