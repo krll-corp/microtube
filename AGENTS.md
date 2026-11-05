@@ -69,13 +69,14 @@ Nginx configuration when relevant. Each service has its own lowercase `dockerfil
 | `frontend/main/` | Home, search and player UI prototype; includes demo data | 8080 |
 | `frontend/monitor/` | HTTP availability probes through `nginx.conf` | 8081 |
 | `frontend/upload/` | Creator upload UI; `/api/upload/` Nginx proxy | 8082 |
-| `frontend/auth/` | Login/registration UI and browser credential hashing | 8083 |
-| `frontend/shared/` | Shared CSS foundation and page-specific styles | Mounted in all frontends |
+| `frontend/auth/` | Session UI, browser credential hashing; `/api/auth/` proxy | 8083 |
+| `frontend/shared/` | Shared CSS, font and theme preference script | Mounted in all frontends |
 | `backend/video/` | Public streaming and bounded RAM cache | 3030 |
-| `backend/text/` | Authenticated cosine search over JSONB vectors | 3031 |
+| `backend/text/` | Authenticated cosine search over pgvector embeddings | 3031 |
 | `backend/upload/` | Authenticated upload, file storage, metadata insertion | 3032 |
 | `backend/auth/` | Registration, login, logout and in-memory sessions | 3033 |
 | `backend/shared/microtube_auth.py` | Shared session lookup and FastAPI dependency | None |
+| `backend/shared/microtube_embeddings.py` | HTTP embedding client and response validation for text/indexing | None |
 | `backend/shared/microtube_storage.py` | Shared video path lookup for upload, streaming and video AI | None |
 | `backend/indexing/` | Background indexing worker, no HTTP API | None |
 | `backend/ai/video/` | Video embedding API | 4001 |
@@ -102,8 +103,9 @@ The rules also stand alone when an agent cannot open the renders.
   monospaced face for the `microtube` wordmark, headings, navigation, labels,
   video names, timestamps, and interface copy. Its stepped, square glyph outlines
   are intentional, not a retro arcade illustration. The original font family is
-  not established by the PNGs: inspect available font assets and license before
-  choosing one. It **must** support Ukrainian Cyrillic (including і, ї, є, ґ).
+  not established by the PNGs. The current implementation uses local Tiny5 in
+  `frontend/shared/fonts/`, with its SIL Open Font License. Preserve Ukrainian
+  Cyrillic support (including і, ї, є, ґ) when choosing a replacement.
   If unavailable, use a readable monospaced fallback, never unreadable tofu glyphs.
   Do not blur, stretch, fake pixelation with `image-rendering`, or rasterize text.
 - **Light theme is the reference.** White/off-white canvas; near-black copy,
@@ -141,29 +143,34 @@ The rules also stand alone when an agent cannot open the renders.
   and `frontend/monitor/` when those views are in scope. They should share
   typography, color, border, link, and spacing conventions; do not independently
   redesign each service. Keep static HTML/CSS/JS unless a task requires more.
+- **Interface language:** English across all four frontends, including errors,
+  accessibility labels and demo content. The reference renders have Ukrainian
+  copy; translate those labels (for example, `Related videos`). Preserve uploaded
+  titles, descriptions and tags in their original language.
 - **CSS location:** `frontend/shared/base.css` contains common rules; the sibling
   `main.css`, `auth.css`, `upload.css`, and `monitor.css` hold page-specific rules.
   Load the base first. All frontends serve this one directory at `/shared/` through
   a read-only bind mount; keep CSS out of individual `app/` directories and images.
 
-### Theme planning, not an implicit feature request
+### Themes
 
-Light mode is the current acceptance target. Structure future CSS around semantic
+Light mode remains the render reference. Structure CSS around semantic
 custom properties (`--bg`, `--text`, `--muted`, `--surface`, `--border`,
 `--accent`, `--focus`, `--player-bg`) rather than scattered hardcoded colors.
-Reserve a dark palette for a later task: charcoal/near-black canvas, light text,
+The dark palette uses a charcoal/near-black canvas, light text,
 subtle dark surfaces, visible gray/light rules, and a legible orange accent.
 Both themes must retain the same grid, pixel type, square geometry, real media,
-and high-contrast duration labels. When implementing theme switching, consider
-`prefers-color-scheme`, an explicit user override and persistence, plus native
-control colors. Do not implement a toggle, automatic switching, or additional
-JavaScript solely because a frontend task mentions styling.
+and high-contrast duration labels. `frontend/shared/theme.js` follows
+`prefers-color-scheme` by default. Each header offers a split-circle light/dark
+toggle and an Auto button to restore the system preference;
+the non-auth `microtube_theme` cookie shares the override across frontend ports
+on the same hostname. Keep this script before the stylesheets to avoid a light
+flash, and preserve native control colors through `color-scheme`.
 
 Screenshots are *design targets*, not current app screenshots. Visually compare
 changed pages against both PNGs at desktop and narrow widths; explain deliberate
-deviations. The present `frontend/main/` hero, emoji thumbnails, rounded pills,
-Arial lettering, gradients and avatars are implementation drift, not new design
-precedent. Do not treat them as authorization to continue that visual language.
+deviations. Hero sections, emoji thumbnails, rounded pills, Arial lettering,
+gradients and avatars from older implementations are not design precedent.
 
 ## Current contracts and data flow
 
@@ -181,14 +188,24 @@ precedent. Do not treat them as authorization to continue that visual language.
 - `microtube_storage.open_video` provides seek/read across parts for PyAV. Readers
   also support legacy full files at the prefix path and `/videos/<id>`.
   Existing files are not moved automatically; IDs and database records stay stable.
-- `videos` has `hash` (primary key), `metadata` JSONB, `vectors` JSONB, `indexed`,
+- `videos` has `hash` (primary key), `metadata` JSONB, `vector` pgvector(768), `indexed`,
   and `processing_now`. See `db/videos/init.sql` for the actual schema.
+  The vector is nullable until indexing and rejects zero vectors. A video index
+  is deferred until benchmarks.
+- The same database has `tags(tag_id, tag, vector)`: generated bigint IDs,
+  unique case-sensitive names, nullable pgvector `vector(768)`, and an HNSW cosine
+  index. Upload stores ordered `metadata.tag_ids`; names live only in `tags.tag`
+  and are returned in the upload response for the UI. JSON IDs are not foreign
+  keys; preserve referenced rows.
+  Fresh databases use `init.sql`. Existing JSONB-vector schemas need an explicit
+  migration or an authorized reset of an empty development database; see README.
 - Metadata includes `id`, `owner_hash`, `filename`, `size`, `title`, `description`,
-  and `tags`. `owner_hash` is the authenticated user's `login_hash`; a submitted
+  and `tag_ids`. `owner_hash` is the authenticated user's `login_hash`; a submitted
   form field cannot override it. This JSON reference is not a database foreign key.
   Older records may lack an owner; do not invent one without an explicit mapping.
 - Keep SQL parameterized and use `psycopg2.extras.Json` for JSONB values. The upload
-  service removes its newly stored file if the database insertion fails.
+  service uses a separate connection and transaction per request, closes it after
+  commit/rollback, and removes its newly stored file if connection/insertion fails.
 
 ### Authentication
 
@@ -203,6 +220,10 @@ precedent. Do not treat them as authorization to continue that visual language.
   require shared session state before they could serve users consistently.
 - The browser uses the HttpOnly `microtube_token` cookie; API clients can use a
   Bearer header. Cookie-authenticated writes check the request Origin.
+- The auth UI submits hashes with `fetch` via its same-origin `/api/auth/` proxy
+  to `backend-auth:3033/auth/`. Errors appear inline; registration/login confirm
+  `/auth/me` then navigate Home. Account checks the session on reload and offers
+  Sign out for an active session.
 - Internal port 3034 is not published: `GET /check` returns a boolean and
   `GET /user` returns the login hash or null. The shared `require_user` dependency
   calls `/user`, returns the identity, or rejects an invalid session with 401.
@@ -214,14 +235,17 @@ precedent. Do not treat them as authorization to continue that visual language.
 
 - The indexing worker polls unindexed rows every 60 seconds. It uses a PostgreSQL
   session advisory lock per video, so abandoned processing flags can be retried.
-- It sends the video ID to `GET /embedding/video?hash=<id>` and each tag separately
-  to `GET /embedding/text?text=<text>`. Video bytes stay in the shared volume.
+- It sends the video ID to `GET /embedding/video?hash=<id>` and missing tag vectors
+  to `GET /embedding/text?text=<text>`. Tag vectors are cached in `tags` and looked
+  up by `metadata.tag_ids`. Video bytes stay in the shared volume.
 - Both AI services currently select `google/embeddinggemma-2`. Their masked-mean
   embeddings are L2-normalized; the indexer expects 768 finite numbers per vector.
   Both containers listen on 4001 internally, despite different host ports.
-- `vectors` stores `{"video": [...], "text": [[...], ...]}`; tag-vector order follows
-  `metadata.tags`. Vectors and completion flags are committed together; failures
-  are logged and retried. Titles and descriptions currently have no embeddings.
+- Video embeddings live in `videos.vector`; shared tag embeddings live in `tags.vector`
+  and are referenced by ordered `metadata.tag_ids`. Tag embeddings can be reused
+  after a failed video attempt; video vectors and completion flags are committed
+  together. Upload assigns tag IDs; indexing does not recreate them or rewrite
+  metadata. Failures are logged and retried. Titles/descriptions have no embeddings.
 - `GET`/`HEAD /videos?id=<id>` checks the database record and stored layout,
   supports byte ranges across parts and multipart ranges, and uses a bounded LRU
   RAM cache per part (`VIDEO_CACHE_MB` defaults to 64). Parts exceeding the budget
@@ -229,13 +253,21 @@ precedent. Do not treat them as authorization to continue that visual language.
   an ID is a health check.
 - `GET /search?req=<text>&limit=20` ranks indexed rows in PostgreSQL and returns
   `id`, `metadata`, `score`, `video_score`, `tag_score`. The current combined score
-  is MAX(video cosine, best tag cosine), explicitly provisional. Empty/invalid
-  vectors are skipped; limit is 1–100. `backend/text/app/search.sql` performs an
-  exact JSONB scan and top-k before metadata retrieval, not indexed ANN search.
+  is MAX(video cosine, best tag cosine), explicitly provisional. Missing vectors
+  are skipped; limit is 1–100. `backend/text/app/search.sql` uses `videos.vector`,
+  `tags.vector` and `metadata.tag_ids`, scoring shared tags once per query. It
+  performs an exact cosine scan and top-k before metadata retrieval, not ANN search.
   Frontend integration and related-video lookup remain future work.
 - Main-page demo cards and client-side filtering do not prove database integration.
-  Its player requests `/api/video/videos`, while its current Dockerfile supplies
-  no proxy for that path. Verify routing before claiming working playback there.
+  Demo photos are CSS crops of the supplied renders, mounted read-only at
+  `/assets/`; demo watch pages show a labeled still. Real watch pages use native
+  video controls and `/api/video/videos`, proxied by `frontend/main/nginx.conf`
+  to `backend-video:3030/videos`. Related cards are still demo data.
+- Public `GET /metadata?id=<id>` returns the title, description and ordered tag
+  names in one SQL query, without embeddings. Real watch pages fetch it through
+  `/api/video/metadata`; share/upload links contain only the video ID. Responses
+  use a 60-second public HTTP cache and ETag/304 validation. Fresh browser cache
+  hits avoid the API; revalidation still queries PostgreSQL.
 - Server-side media validation is incomplete; HTML `accept="video/mp4"` only
   affects the file picker. Treat UI placeholders and historical reports accordingly.
 
@@ -294,8 +326,8 @@ precedent. Do not treat them as authorization to continue that visual language.
   need an explicit migration; rebuilding an image does not apply schema changes.
 - Rebuilding an image alone does not update a running container. Use Compose to
   recreate the affected service. Restart consumers after changing shared Python code.
-- Shared CSS changes are visible through the frontend mount without rebuilding
-  images. Reload the browser; HTML/JS changes still require rebuilding the service.
+- Shared CSS/JS changes are visible through the frontend mount without rebuilding
+  images. Reload the browser; HTML and page-local JS changes still require a rebuild.
 
 Useful commands, run from the repository root:
 

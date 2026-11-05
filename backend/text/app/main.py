@@ -7,6 +7,7 @@ import requests
 from fastapi import Depends, FastAPI, HTTPException, Query
 from psycopg2.extras import RealDictCursor
 from microtube_auth import require_user
+from microtube_embeddings import get_embedding
 
 app = FastAPI()
 SEARCH_SQL = Path(__file__).with_name("search.sql").read_text()
@@ -18,19 +19,8 @@ def connect():
         password=os.environ["POSTGRES_PASSWORD"],
         host="db-videos",
         port=5432,
+        connect_timeout=5,
     )
-
-def get_embedding(url, params):
-    response = requests.get(url, params=params, timeout=600)
-    response.raise_for_status()
-    embedding = response.json()
-    if (
-        not isinstance(embedding, list)
-        or len(embedding) != 768
-        or not all(type(value) in (int, float) and math.isfinite(value) for value in embedding)
-    ):
-        raise ValueError(f"Invalid embedding from {url}")
-    return embedding
 
 @app.get("/health")
 def health():
@@ -49,5 +39,5 @@ def run(req: str = Query(min_length=1, pattern=r"\S"), limit: int = Query(defaul
 
     with closing(connect()) as connection:
         with connection.cursor(cursor_factory=RealDictCursor) as cursor:
-            cursor.execute(SEARCH_SQL, (embedding, limit))
+            cursor.execute(SEARCH_SQL, (str(embedding), limit))
             return cursor.fetchall()

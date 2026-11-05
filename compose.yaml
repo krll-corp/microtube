@@ -7,6 +7,7 @@ services:
       dockerfile: dockerfile
     volumes:
       - ./frontend/shared:/usr/share/nginx/html/shared:ro
+      - ./assets:/usr/share/nginx/html/assets:ro
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${FRONTEND_PORT:-8080}:80"
     restart: unless-stopped
@@ -20,8 +21,6 @@ services:
     build:
       context: ./frontend/upload
       dockerfile: dockerfile
-    environment:
-      UPLOAD_API_PORT: ${UPLOAD_API_PORT:-3032}
     volumes:
       - ./frontend/shared:/usr/share/nginx/html/shared:ro
     ports:
@@ -52,8 +51,6 @@ services:
     build:
       context: ./frontend/auth
       dockerfile: dockerfile
-    environment:
-      AUTH_API_PORT: ${AUTH_API_PORT:-3033}
     volumes:
       - ./frontend/shared:/usr/share/nginx/html/shared:ro
     ports:
@@ -170,8 +167,11 @@ services:
       context: ./backend/indexing
       dockerfile: dockerfile
     environment:
+      PYTHONPATH: /shared
       POSTGRES_USER: ${POSTGRES_USER:-admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - ./backend/shared:/shared:ro
     depends_on:
       db-videos:
         condition: service_healthy

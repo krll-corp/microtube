@@ -1,12 +1,11 @@
 import logging
-import math
 import os
 import time
 from contextlib import closing
 
 import psycopg2
-import requests
 from psycopg2.extras import Json, RealDictCursor
+from microtube_embeddings import get_embedding
 
 
 def connect():
@@ -19,28 +18,24 @@ def connect():
     )
 
 
-def get_embedding(url, params):
-    response = requests.get(url, params=params, timeout=600)
-    response.raise_for_status()
-    embedding = response.json()
-    if (
-        not isinstance(embedding, list)
-        or len(embedding) != 768
-        or not all(type(value) in (int, float) and math.isfinite(value) for value in embedding)
-    ):
-        raise ValueError(f"Invalid embedding from {url}")
-    return embedding
-
-
-def get_vectors(video):
-    video_embedding = get_embedding(
-        "http://backend-ai-video:4001/embedding/video", {"hash": video["hash"]},
-    )
-    text_embeddings = [
-        get_embedding("http://backend-ai-text:4001/embedding/text", {"text": tag})
-        for tag in video["metadata"].get("tags", [])
-    ]
-    return {"video": video_embedding, "text": text_embeddings}
+def index_tags(tag_ids):
+    with closing(connect()) as connection:
+        for tag_id in dict.fromkeys(tag_ids):
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT tag, vector IS NOT NULL FROM tags WHERE tag_id = %s", (tag_id,))
+                    row = cursor.fetchone()
+                    if row is None:
+                        raise LookupError(f"Tag {tag_id} disappeared during indexing")
+                    tag, indexed = row
+            if not indexed:
+                embedding = get_embedding("http://backend-ai-text:4001/embedding/text", {"text": tag})
+                with connection:
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            "UPDATE tags SET vector = %s::vector WHERE tag_id = %s AND vector IS NULL",
+                            (Json(embedding), tag_id),
+                        )
 
 
 def run(video):
@@ -57,7 +52,7 @@ def run(video):
                     return None
                 cursor.execute(
                     "UPDATE videos SET processing_now = TRUE "
-                    "WHERE hash = %s AND indexed = FALSE RETURNING metadata",
+                    "WHERE hash = %s AND indexed = FALSE RETURNING metadata->'tag_ids'",
                     (video_id,),
                 )
                 row = cursor.fetchone()
@@ -65,15 +60,18 @@ def run(video):
         if row is None:
             return None
 
+        tag_ids = row[0]
         logging.info("Starting indexing for %s", video_id)
         try:
-            vectors = get_vectors({"hash": video_id, "metadata": row[0]})
+            vector = get_embedding("http://backend-ai-video:4001/embedding/video", {"hash": video_id})
+            index_tags(tag_ids)
             with connection:
                 with connection.cursor() as cursor:
                     cursor.execute(
-                        "UPDATE videos SET vectors = %s, indexed = TRUE, processing_now = FALSE "
+                        "UPDATE videos SET vector = %s::vector, "
+                        "indexed = TRUE, processing_now = FALSE "
                         "WHERE hash = %s",
-                        (Json(vectors), video_id),
+                        (Json(vector), video_id),
                     )
                     if cursor.rowcount != 1:
                         raise LookupError(f"Video {video_id} disappeared during indexing")
@@ -89,9 +87,9 @@ def run(video):
 
     logging.info(
         "Indexed %s: video=%d dimensions, tags=%d",
-        video_id, len(vectors["video"]), len(vectors["text"]),
+        video_id, len(vector), len(tag_ids),
     )
-    return vectors
+    return vector
 
 
 def watcher():

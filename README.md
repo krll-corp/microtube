@@ -10,28 +10,38 @@ The [home](assets/main-page.png) and [watch-page](assets/video-page.png) renders
 are design targets. The agreed direction combines pixel-style monospaced type,
 square outlines, a white canvas, dark text and a restrained orange accent, with
 [tiny corp](https://tinygrad.org/) as an inspiration for technical minimalism.
-Current frontend styles have not yet been converted to this target; dark mode
-is planned. See the [design rules](AGENTS.md#visual-design-system-all-frontends)
-for the full specification and theme planning.
+All four frontends share this style in light and dark palettes.
+See the [design rules](AGENTS.md#visual-design-system-all-frontends)
+for the full specification.
+The header's split-circle button switches between light and dark; Auto follows
+the system (the default). A `microtube_theme` preference cookie shares that choice
+across frontend ports on the same hostname; it contains no authentication data.
+Interface copy and demo content are in English; uploaded titles, descriptions
+and tags are displayed as entered. The original renders use Ukrainian labels.
+Light UI previews: [home](docs/screenshots/home.jpg),
+[watch](docs/screenshots/watch.jpg), [mobile watch](docs/screenshots/watch-mobile.jpg).
+Dark UI preview: [home and search focus](docs/screenshots/home-dark.jpg).
+Uploaded video with database metadata: [desktop](docs/screenshots/watch-live.jpg),
+[mobile](docs/screenshots/watch-mobile-live.jpg).
 
 ## Current limitations
 
 Implementation and configuration reviewed against repository source on 2026-10-30.
 
-- The main frontend uses demo videos and local filtering. It does not load a
-  catalog or related-video results from PostgreSQL; watch-page metadata is taken
-  from URL parameters or placeholders.
-- Its player requests `/api/video/videos`, but `frontend/main/dockerfile` does not
-  install a proxy for that route. The upload UI's watch link therefore does not
-  provide working playback yet. The direct streaming endpoint remains
-  `http://127.0.0.1:3030/videos?id=<id>`.
-- `GET /search?req=<text>` ranks indexed videos by cosine similarity in PostgreSQL.
-  This is an exact scan of JSONB vectors, without a vector index; larger catalogs
-  will need a separate indexed vector representation. The main UI still filters
-  demo data. Indexing embeds the video and each tag, but not title/description.
-- Some navigation links hardcode `localhost` and ports `8080`-`8083`. Changing
-  Compose port settings does not rewrite those links. Use the same hostname for
-  login and upload so the browser sends the session cookie to both services.
+- The home catalog and related-video cards use demo data and local filtering.
+  Real watch pages load their title, description and tag names from PostgreSQL
+  through the metadata endpoint.
+- Demo cards show still images, not playable videos. Their photographs are CSS
+  crops of the supplied renders, served from the read-only `assets/` mount.
+  Uploaded videos use native `<video controls>`; the main frontend proxies
+  `/api/video/videos?id=<id>` to `backend-video:3030/videos?id=<id>`.
+- `GET /search?req=<text>` ranks indexed videos using pgvector cosine similarity.
+  Ranking currently scans the video and tag vectors exactly; the main UI still
+  filters demo data. Titles and descriptions have no embeddings yet.
+- Navigation links preserve the current hostname but use default frontend ports
+  `8080`-`8083`. Changing Compose port settings does not rewrite those links.
+  Use the same hostname for login and upload so the browser sends the session
+  cookie to both services.
 - The monitor probes HTTP availability every 30 seconds and stores its history
   in browser local storage. It does not check PostgreSQL or the indexing worker,
   and is not a metrics platform or proof that complete user flows work.
@@ -63,8 +73,28 @@ All CSS lives in `frontend/shared/`: `base.css` holds common rules, and `main.cs
 `auth.css`, `upload.css`, and `monitor.css` contain page-specific rules. Each page
 loads the base first, then its own file. Compose mounts this directory read-only
 at `/usr/share/nginx/html/shared` in all four frontends, served as `/shared/`.
-CSS edits need a browser reload, without rebuilding an image. Run frontends with
-Compose so the mount is present; standalone images do not contain these styles.
+The shared `theme.js` applies the palette before rendering and handles the controls.
+Shared CSS/JS edits need a browser reload, without rebuilding an image. Run
+frontends with Compose so the mount is present; standalone images do not contain
+these shared assets.
+
+The shared directory also serves the local Tiny5 pixel font, including Ukrainian
+Cyrillic. `fonts/Tiny5.woff2` is a static webfont built from
+[Google Fonts' Tiny5 source](https://github.com/google/fonts/tree/main/ofl/tiny5)
+at its default axes; the SIL Open Font License is included in `fonts/OFL.txt`.
+The UI does not request fonts or demo images from third-party servers.
+
+To preview just the UI without starting the AI models:
+
+```bash
+docker compose up -d --build --no-deps frontend-main frontend-upload frontend-auth frontend-monitor
+```
+
+Login, uploads and real playback also need their backend services:
+
+```bash
+docker compose up -d --build backend-auth backend-upload backend-video
+```
 
 Addresses below use the default ports from `.env.example`.
 
@@ -73,7 +103,7 @@ Addresses below use the default ports from `.env.example`.
 | `frontend-main` | http://127.0.0.1:8080 | Demo catalog, local filtering and watch-page UI |
 | `frontend-upload` | http://127.0.0.1:8082 | Creator upload UI with preview and progress |
 | `frontend-monitor` | http://127.0.0.1:8081 | HTTP availability monitor |
-| `frontend-auth` | http://127.0.0.1:8083 | Login and registration form |
+| `frontend-auth` | http://127.0.0.1:8083 | Login, registration and session UI |
 | `backend-video` | http://127.0.0.1:3030/docs | Video streaming with a bounded RAM cache |
 | `backend-text` | http://127.0.0.1:3031/docs | Authenticated cosine similarity search |
 | `backend-upload` | http://127.0.0.1:3032/docs | Receives a file and metadata after login |
@@ -90,6 +120,11 @@ case-sensitive and hashed in the browser as `SHA256(SHA256(UTF8(value)))`, with
 the binary digest as input to the second hash. Only the two hexadecimal hashes
 are sent as form fields `login_hash` and `password_hash` and stored in `users`.
 Registration and login return a random token and set an HttpOnly session cookie.
+The auth UI uses `fetch` through its same-origin `/api/auth/` proxy to
+`backend-auth:3033/auth/`. Errors stay beside the form. After registration or login,
+the UI confirms the cookie through `/auth/me` and opens Home. Returning to Account
+checks the session again and offers Sign out. The UI uses the cookie, without storing
+the returned token in JavaScript storage.
 The upload UI sends this cookie with its XMLHttpRequest; API clients can instead
 use `Authorization: Bearer <token>`.
 
@@ -125,6 +160,9 @@ to `/api/upload/upload` on port `8082`, proxied to `backend-upload:3032/upload`.
 Tags are separated by whitespace. The UI shows upload progress and the server's
 response. The endpoint stores MP4 bytes in `/videos/<id[:2]>/<id[2:]>/`,
 writes its metadata to PostgreSQL, and returns `stored: true`.
+Each upload opens its own PostgreSQL connection after saving the file. Tag
+allocation and video insertion share one transaction; the connection is closed
+after commit or rollback. A connection or insertion failure removes the new file.
 The metadata JSON and upload response include `owner_hash`, taken from the
 authenticated session's `login_hash`. A form field cannot override this value.
 Existing videos without an owner need an explicit assignment; their original
@@ -144,18 +182,58 @@ segments. Streaming exposes one logical file, including ranges crossing parts;
 video AI uses a seekable reader without rebuilding a complete temporary file.
 `backend/shared/microtube_storage.py` handles this layout and both legacy full-file
 paths (`/videos/<id[:2]>/<id[2:]>` and `/videos/<id>`). Existing videos are not moved.
-IDs, URLs, metadata size (the total video size) and the database schema stay the same.
+Chunking preserves IDs, URLs, metadata size (the total video size) and existing
+columns in `videos`.
+
+The same `videos` database also has a shared `tags` table: `tag_id` (generated
+bigint primary key), `tag` (unique, case-sensitive text), and `vector`
+(`vector(768)`, nullable until indexing). Upload assigns IDs and stores them in
+`metadata.tag_ids`, preserving order. Names are stored only in `tags.tag`; the
+upload response returns them in `tags` for the UI. Repeated names share one ID
+and embedding across videos.
+`videos.vector` and `tags.vector` both use pgvector `vector(768)` and are NULL
+until indexing. They reject zero vectors; the type checks dimensions and finite
+values. `tags` has an HNSW cosine index; a video index is deferred until benchmarks.
+Text search uses these vectors; related-video lookup is still planned. The videos image
+builds pgvector 0.8.7 on the existing PostgreSQL 16 Alpine base; the users database
+is unchanged.
+
+Fresh databases get this schema automatically. The old JSONB `videos.vectors`
+column is no longer used. For an empty development database, recreate only the
+`videos` database before restarting consumers. **This deletes its records and
+tags**, while preserving user accounts, video files and the model cache:
+
+```bash
+docker compose stop backend-upload backend-indexing
+docker compose up -d --build --no-deps --wait db-videos
+docker compose exec -T db-videos sh -c 'dropdb --force -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
+docker compose exec -T db-videos sh -c 'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < db/videos/init.sql
+docker compose up -d --build --no-deps backend-upload backend-indexing
+```
+
+An existing database with data needs an explicit migration instead of this reset.
+Tag IDs in JSON are references without a foreign key; do not delete referenced
+tag rows.
 
 In `backend-indexing`, the worker polls unindexed videos every 60 seconds.
 `run(video)` claims a video with a PostgreSQL session advisory lock and sets
-`processing_now = true`, then requests a video embedding and one text embedding
-per tag. Valid 768-dimensional vectors are saved to `vectors` as
-`{"video": [...], "text": [[...], ...]}` with tag vectors in metadata order.
-The vectors, `indexed = true`, and `processing_now = false` are committed together.
+`processing_now = true`, then requests a video embedding. It looks up each tag
+by ID, reuses its stored embedding, or computes and saves a missing one in `tags`.
+The video embedding is saved to `videos.vector`; tag embeddings
+live only in `tags.vector` and are referenced through `metadata.tag_ids`.
+The video vector, `indexed = true`, and `processing_now = false` are
+committed together. Cached tag embeddings remain reusable after a failed attempt.
+Tag IDs are assigned by upload; the indexer reads them without rewriting metadata.
 On error, the video remains unindexed and is retried on the next poll; other videos
 continue processing. Session locks are released on disconnect, so interrupted
 videos can be picked up again even if `processing_now` was left true.
 Completed videos are skipped. Successes and errors are logged.
+
+`backend-text` and `backend-indexing` share the HTTP embedding client and
+768-dimensional response validation in `backend/shared/microtube_embeddings.py`.
+Compose mounts it read-only at `/shared`; restart both consumers after editing it.
+Text search also connects to `db-videos`; Compose supplies its database credentials.
+After updating it, run `docker compose up -d --build backend-text backend-ai-text`.
 
 `GET /embedding/text?text=dog` returns a normalized 768-dimensional vector. The
 text service uses the same model and shared model cache as the video service,
@@ -165,23 +243,34 @@ with the unused vision and audio encoders disabled. `TEXT_AI_PORT` defaults to
 `GET /search?req=fox&limit=20` requires a session and returns a ranked JSON list.
 `limit` defaults to 20 and accepts 1–100; blank queries are rejected. Each result
 contains `id`, `metadata`, `score`, `video_score` and `tag_score`. The last two are
-the video cosine and the best tag cosine, or `null` if no valid vector exists.
+the video cosine and the best tag cosine, or `null` if that vector is absent.
 The combined score is currently their maximum; this choice is provisional.
-Only indexed rows and valid nonzero 768-dimensional vectors participate.
-Invalid vectors are skipped individually; a video with no valid vectors is omitted.
-Embedding-service failures return 502.
+Only indexed videos with at least one non-NULL video or tag vector participate.
+Embedding-service failures and invalid query vectors return 502.
 
-`backend/text/app/search.sql` computes the scores and top-k inside PostgreSQL,
-then fetches metadata only for the selected IDs. The service receives the query
-embedding and the results, rather than every stored vector. `vectors` keeps its
-existing JSONB format and needs no migration. This saves network transfer but
-still scans all indexed embeddings on each query; it is not approximate nearest
-neighbor search. The frontend is not connected to this API yet.
+`backend/text/app/search.sql` uses `videos.vector`, `tags.vector` and
+`metadata.tag_ids`; it needs the current pgvector schema, without a new migration.
+Each shared tag is scored once per query. PostgreSQL computes top-k before
+fetching result metadata, so stored vectors are not sent to the search service.
+This is an exact scan, not ANN lookup through the HNSW index. The frontend is
+not connected to this API yet.
 
 `GET /videos?id=<id>` on `backend-video` streams an uploaded MP4 inline. It checks
 that the ID exists in PostgreSQL and that the file exists in `/videos`. HTTP
 `Range` requests support seeking (`206 Partial Content`); `HEAD` returns headers
 without reading the file body. `GET /videos` without an ID is the health check.
+
+`GET /metadata?id=<id>` is public and returns only `id`, `title`, `description`
+and tag names. One SQL query resolves ordered `metadata.tag_ids`; embeddings are
+not included. The main UI calls `/api/video/metadata?id=<id>` once when opening a
+real watch page; upload links contain only `?video=<id>`. Video Range requests
+use the separate streaming URL and carry no JSON metadata.
+
+Metadata responses have `Cache-Control: public, max-age=60, must-revalidate` and
+an ETag derived from their contents. The browser can reuse a fresh response for
+60 seconds; matching `If-None-Match` requests receive `304` without a body.
+Revalidation still reads the database, so this is an HTTP cache rather than a
+second server-side metadata cache. Unknown IDs return `404` without caching.
 
 The process keeps recently requested parts in an LRU RAM cache, capped by
 `VIDEO_CACHE_MB` (default `64` MiB; `0` disables caching). One full part fits the

@@ -1,13 +1,13 @@
 import os
 import secrets
 import shutil
+from contextlib import closing
 import psycopg2
 from fastapi import Depends, FastAPI, Form, UploadFile
 from psycopg2.extras import Json
 from microtube_auth import require_user
 from microtube_storage import find_video, save_video, video_path
-
-connection = psycopg2.connect(database="videos", user=os.getenv("POSTGRES_USER", "admin"), password=os.environ["POSTGRES_PASSWORD"], host="db-videos", port=5432)
+from microtube_tags import get_tag_ids
 
 app = FastAPI()
 
@@ -32,6 +32,7 @@ def run(
                 raise
             file.file.seek(0)
 
+    tag_names = tags.split()
     metadata = {
         "id": id,
         "owner_hash": owner_hash,
@@ -39,16 +40,21 @@ def run(
         "size": size,
         "title": title,
         "description": description,
-        "tags": tags.split(),
     }
 
     try:
-        with connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "INSERT INTO videos (hash, metadata, indexed, processing_now) VALUES (%s, %s, %s, %s)",
-                    (id, Json(metadata), False, False),
-                )
+        with closing(psycopg2.connect(
+            database="videos", user=os.getenv("POSTGRES_USER", "admin"),
+            password=os.environ["POSTGRES_PASSWORD"], host="db-videos", port=5432,
+            connect_timeout=5,
+        )) as connection:
+            with connection:
+                with connection.cursor() as cursor:
+                    metadata["tag_ids"] = get_tag_ids(cursor, tag_names)
+                    cursor.execute(
+                        "INSERT INTO videos (hash, metadata, indexed, processing_now) VALUES (%s, %s, %s, %s)",
+                        (id, Json(metadata), False, False),
+                    )
     except Exception:
         shutil.rmtree(PATH_TO_VIDEO)
         raise
@@ -60,6 +66,7 @@ def run(
         "size": size,
         "title": title,
         "description": description,
-        "tags": tags.split(),
+        "tags": tag_names,
+        "tag_ids": metadata["tag_ids"],
         "stored": True,
     }
