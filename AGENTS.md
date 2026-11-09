@@ -178,12 +178,15 @@ gradients and avatars from older implementations are not design precedent.
 
 - `POST /upload` accepts multipart `file`, `title`, `description`, and `tags`.
   Tags are separated by whitespace. Upload does not wait for AI indexing.
-  The optional `thumbnail` accepts JPEG, PNG or WebP up to 5 MiB and 16 megapixels.
+  The optional `thumbnail` accepts JPEG, PNG or WebP up to 16 megapixels.
   Upload encodes that image or the first video frame as a JPEG of up to 480 px.
-  The service checks the 2 GiB file limit and decodes a frame from an MP4 video
-  track before writing to the volume.
-  Nginx caps the entire multipart request at 2 GiB. Large uploads occupy
-  temporary disk space before the service writes the video chunks.
+  The service decodes a frame from an MP4 video track before writing to the
+  volume. Nginx streams uploads with no fixed request body size limit.
+  Large multipart files spool to disk. The service reads images in 64 KiB
+  pieces and writes video chunks from the temporary file.
+  The browser sends an `Idempotency-Key` for each upload attempt. The server
+  uses an advisory lock per owner and key to return the existing video on a
+  retry. It removes any temporary copy written by the repeated request.
 - Video IDs are eight URL-safe characters generated with `token_urlsafe(6)`.
   The historical column/parameter name `hash` means this ID, not a content SHA-256.
 - New MP4 uploads are binary 64 MiB parts in `/videos/<id[:2]>/<id[2:]>/`, named

@@ -7,7 +7,7 @@
     <title>Upload a video — MicroTube</title>
     <script src="/shared/theme.js?v=2"></script>
     <link rel="stylesheet" href="/shared/base.css?v=4">
-    <link rel="stylesheet" href="/shared/upload.css">
+    <link rel="stylesheet" href="/shared/upload.css?v=2">
 </head>
 <body>
 <div class="site-shell">
@@ -85,6 +85,7 @@
     const progressPercent = document.getElementById("progress-percent");
 
     let previewUrl = null;
+    let uploadKey = null;
 
     function serviceURL(port) {
         const url = new URL("/", location.href);
@@ -109,21 +110,28 @@
     }
 
     function showMessage(message, type = "error") {
+        if (type === "error") progressWrap.hidden = true;
         feedback.hidden = false;
         feedback.className = `message ${type}`;
         feedback.textContent = message;
     }
 
+    function clearPreview() {
+        fileInput.value = "";
+        fileInfo.hidden = true;
+        preview.hidden = true;
+        preview.removeAttribute("src");
+        preview.load();
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        previewUrl = null;
+    }
+
     function useFile(file) {
         if (!file) return;
+        uploadKey = null;
 
         if (!file.name.toLowerCase().endsWith(".mp4")) {
-            fileInput.value = "";
-            fileInfo.hidden = true;
-            preview.hidden = true;
-            preview.removeAttribute("src");
-            if (previewUrl) URL.revokeObjectURL(previewUrl);
-            previewUrl = null;
+            clearPreview();
             showMessage("Please choose a video file with the .mp4 extension.");
             return;
         }
@@ -176,8 +184,11 @@
         useFile(file);
     });
 
+    form.addEventListener("input", () => { uploadKey = null; });
+
     form.addEventListener("submit", event => {
         event.preventDefault();
+        if (submitButton.disabled) return;
         feedback.hidden = true;
 
         const file = fileInput.files[0];
@@ -187,9 +198,12 @@
             return;
         }
 
+        submitButton.disabled = true;
+        uploadKey ??= Array.from(crypto.getRandomValues(new Uint8Array(16)),
+            byte => byte.toString(16).padStart(2, "0")).join("");
+        const requestKey = uploadKey;
         const formData = new FormData(form);
 
-        submitButton.disabled = true;
         submitButton.textContent = "Uploading...";
         progressWrap.hidden = false;
         progressBar.value = 0;
@@ -198,9 +212,9 @@
 
         const request = new XMLHttpRequest();
         request.open("POST", "/api/upload/upload");
+        request.setRequestHeader("Idempotency-Key", requestKey);
         request.withCredentials = true;
         request.responseType = "text";
-        request.timeout = 30 * 60 * 1000;
 
         request.upload.addEventListener("progress", event => {
             if (!event.lengthComputable) return;
@@ -208,6 +222,7 @@
             const percent = Math.round((event.loaded / event.total) * 100);
             progressBar.value = percent;
             progressPercent.textContent = `${percent}%`;
+            if (event.loaded === event.total) progressText.textContent = "Processing upload";
         });
 
         request.addEventListener("load", () => {
@@ -223,6 +238,11 @@
             }
 
             if (request.status >= 200 && request.status < 300 && result.stored) {
+                if (uploadKey === requestKey) {
+                    form.reset();
+                    clearPreview();
+                    uploadKey = null;
+                }
                 progressBar.value = 100;
                 progressPercent.textContent = "100%";
                 progressText.textContent = "Upload complete";
@@ -262,12 +282,6 @@
             submitButton.disabled = false;
             submitButton.textContent = "Upload video";
             showMessage("Could not connect to the upload server.");
-        });
-
-        request.addEventListener("timeout", () => {
-            submitButton.disabled = false;
-            submitButton.textContent = "Upload video";
-            showMessage("The request timed out. Check your connection and try again.");
         });
 
         request.send(formData);
