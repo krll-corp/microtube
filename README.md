@@ -71,6 +71,8 @@ returns its original video ID if the first request already saved it.
 Open the returned watch link to play the video or share its ID. Watch pages
 load titles, descriptions and tags from PostgreSQL and use native video
 controls with HTTP Range seeking.
+The Related videos panel shows up to three matches by cosine distance once the
+current video has been indexed. On narrow screens the cards appear below the player.
 
 Home loads 24 cards at a time as you scroll. Guests and accounts with too
 little history get a shuffled catalog. For signed-in users, the player
@@ -85,8 +87,7 @@ the app over HTTPS. [Authentication details](AGENTS.md#authentication)
 
 ## Current limitations
 
-- Cards show JPEG previews and placeholder durations. Related videos on the
-  watch page are planned.
+- Cards show JPEG previews and placeholder durations.
 - The main page filters loaded titles. Semantic search is available through
   the authenticated API and uses video and tag embeddings.
 - The monitor checks HTTP availability. Use Compose logs for indexing and
@@ -105,6 +106,7 @@ matching Origin.
 | Video | `GET /catalog?limit=24&after=<id>` | Public catalog ordered by ID |
 | Video | `GET /thumbnail?id=<id>` | JPEG preview |
 | Video | `GET /metadata?id=<id>` | Title, description and tag names |
+| Video | `GET /related?id=<id>` | Up to three similar indexed video cards |
 | Video | `GET /videos?id=<id>` | MP4 playback with Range support |
 | Video | `POST /history?id=<id>` | Records an authenticated view |
 | Upload | `POST /upload` | Authenticated multipart upload |

@@ -268,7 +268,7 @@ gradients and avatars from older implementations are not design precedent.
   are skipped; limit is 1–100. `backend/text/app/search.sql` uses `videos.vector`,
   `tags.vector` and `metadata.tag_ids`, scoring shared tags once per query. It
   performs an exact cosine scan and top-k before metadata retrieval, not ANN search.
-  Frontend integration and related-video lookup remain future work.
+  Text search frontend integration remains future work.
 - Public `GET /catalog?limit=24&after=<id>` returns `items` (`id`, `title`) and
   `next_after` in primary-key order. Home scrolls through `GET /api/video/feed`
   in pages of 24 and passes the returned `next` query parameters to continue.
@@ -289,6 +289,11 @@ gradients and avatars from older implementations are not design precedent.
   usable pool get a seeded shuffle. Feed responses are private and uncached.
 - Watch pages use native video controls and `/api/video/videos`, proxied by
   `frontend/main/nginx.conf` to `backend-video:3030/videos`.
+- Public `GET /related?id=<id>` returns up to three cards (`id`, `title`) ranked
+  by cosine distance from the current video's embedding. It excludes the
+  current video and candidates without indexed embeddings. A video without
+  an indexed embedding yields an empty list. The watch page loads these cards
+  independently of playback through `/api/video/related`.
 - Public `GET /metadata?id=<id>` returns the title, description and ordered tag
   names in one SQL query, without embeddings. Real watch pages fetch it through
   `/api/video/metadata`; share/upload links contain only the video ID. Responses

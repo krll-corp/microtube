@@ -155,6 +155,34 @@ def metadata(request: Request, id: str = Query(pattern=r"^[A-Za-z0-9_-]{8}$")):
     return response
 
 
+@app.get("/related")
+def related_videos(id: str = Query(pattern=r"^[A-Za-z0-9_-]{8}$")):
+    with closing(connect()) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT related.hash, candidate.metadata->>'title'
+                FROM videos AS source
+                LEFT JOIN LATERAL (
+                    SELECT hash, vector <=> source.vector AS distance
+                    FROM videos
+                    WHERE source.indexed AND source.vector IS NOT NULL
+                      AND indexed AND vector IS NOT NULL AND hash <> source.hash
+                    ORDER BY distance, hash
+                    LIMIT 3
+                ) AS related ON true
+                LEFT JOIN videos AS candidate ON candidate.hash = related.hash
+                WHERE source.hash = %s
+                ORDER BY related.distance, related.hash
+                """,
+                (id,),
+            )
+            rows = cursor.fetchall()
+    if not rows:
+        raise HTTPException(404, "Video not found")
+    return {"items": [{"id": video_id, "title": title} for video_id, title in rows if video_id is not None]}
+
+
 def byte_ranges(value, size):
     unit, separator, value = value.partition("=")
     if not separator or unit.strip().lower() != "bytes":

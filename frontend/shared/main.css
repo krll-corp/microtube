@@ -104,7 +104,7 @@
     padding-top: 36px;
 }
 
-.video-detail {
+.video-detail, .related {
     min-width: 0;
     overflow-wrap: anywhere;
 }
@@ -157,6 +157,20 @@
 
 .related-note {
     margin: 0 0 16px;
+}
+
+.related-list {
+    display: grid;
+    gap: 16px;
+}
+
+.related-list .video-card + .video-card {
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+}
+
+.related-list h3 {
+    font-size: 22px;
 }
 
 .search-heading {

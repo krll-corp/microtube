@@ -115,8 +115,11 @@
             ${description ? `<p class="description">${escapeHtml(description)}</p>` : ""}
             <p class="notice" id="video-error" role="status" hidden>Could not play the video. Check its ID and the service availability.</p>
             <a class="back-link" href="/">← Back to catalog</a>
-        </section><aside class="related"><h2>Related videos</h2>
-            <p class="related-note">Recommendations are not available yet.</p>
+        </section><aside class="related" aria-labelledby="related-title">
+            <h2 id="related-title">Related videos</h2>
+            <div class="related-list">
+                <p class="related-note" role="status">Loading related videos...</p>
+            </div>
         </aside></div>`;
         const player = app.querySelector("video");
         const videoError = app.querySelector("#video-error");
@@ -138,6 +141,19 @@
             } catch {}
             nextReportAt = Date.now() + 5000;
         });
+
+        const related = app.querySelector(".related-list");
+        const note = related.querySelector(".related-note");
+        try {
+            const response = await fetch(`/api/video/related?id=${encodeURIComponent(id)}`);
+            if (!response.ok) throw new Error();
+            const {items} = await response.json();
+            if (version !== navigation) return;
+            if (items.length) related.innerHTML = items.map(card).join("");
+            else note.textContent = "No related videos yet.";
+        } catch {
+            if (version === navigation) note.textContent = "Could not load related videos.";
+        }
     }
 
     function route() {
