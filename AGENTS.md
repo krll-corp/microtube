@@ -72,7 +72,7 @@ Nginx configuration when relevant. Each service has its own lowercase `dockerfil
 | `frontend/auth/` | Session UI, browser credential hashing; `/api/auth/` proxy | 8083 |
 | `frontend/shared/` | Shared CSS, font and theme preference script | Mounted in all frontends |
 | `backend/video/` | Public streaming and bounded RAM cache | 3030 |
-| `backend/text/` | Authenticated search skeleton | 3031 |
+| `backend/text/` | Authenticated cosine search over pgvector embeddings | 3031 |
 | `backend/upload/` | Authenticated upload, file storage, metadata insertion | 3032 |
 | `backend/auth/` | Registration, login, logout and in-memory sessions | 3033 |
 | `backend/shared/microtube_auth.py` | Shared session lookup and FastAPI dependency | None |
@@ -251,9 +251,13 @@ gradients and avatars from older implementations are not design precedent.
   RAM cache per part (`VIDEO_CACHE_MB` defaults to 64). Parts exceeding the budget
   stream from disk; legacy full-file behavior is preserved. `GET /videos` without
   an ID is a health check.
-- Search is unfinished: `GET /search?req=<text>` computes a query embedding but
-  still returns a placeholder. Stored-vector ranking and related-video lookup
-  are MVP targets, not implemented backend behavior.
+- `GET /search?req=<text>&limit=20` ranks indexed rows in PostgreSQL and returns
+  `id`, `metadata`, `score`, `video_score`, `tag_score`. The current combined score
+  is MAX(video cosine, best tag cosine), explicitly provisional. Missing vectors
+  are skipped; limit is 1–100. `backend/text/app/search.sql` uses `videos.vector`,
+  `tags.vector` and `metadata.tag_ids`, scoring shared tags once per query. It
+  performs an exact cosine scan and top-k before metadata retrieval, not ANN search.
+  Frontend integration and related-video lookup remain future work.
 - Main-page demo cards and client-side filtering do not prove database integration.
   Demo photos are CSS crops of the supplied renders, mounted read-only at
   `/assets/`; demo watch pages show a labeled still. Real watch pages use native
@@ -371,6 +375,8 @@ do not assert end-to-end testing if it did not happen. Review README during fina
   real service flow when available; for frontend changes, inspect it in a browser.
 - Add focused tests where they catch meaningful regressions. Avoid test scaffolding
   that outweighs a small change. Report which checks actually ran and any blockers.
+- For now, keep local test scripts temporary and outside Git. A GitHub Actions
+  workflow named `ci` will be added separately; do not introduce it implicitly.
 - Build and start only the services needed for verification; avoid unnecessary
   model downloads and full-cluster rebuilds.
 - A commit may add at most **500 text lines**, across all files. Deletions do not
