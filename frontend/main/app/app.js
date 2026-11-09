@@ -14,8 +14,11 @@
     let catalogObserver;
 
     function card(video) {
-        return `<a class="video-card" href="/?video=${encodeURIComponent(video.id)}">
-            <div class="thumbnail"><span>Preview unavailable</span>
+        const id = encodeURIComponent(video.id);
+        return `<a class="video-card" href="/?video=${id}">
+            <div class="thumbnail">
+                <img src="/api/video/thumbnail?id=${id}" alt="" loading="lazy" decoding="async">
+                <span hidden>Preview unavailable</span>
                 <span class="duration" aria-label="Duration unavailable">--:--</span></div>
             <h3>${escapeHtml(video.title || "Video on MicroTube")}</h3></a>`;
     }
@@ -153,5 +156,11 @@
         route();
     });
     window.addEventListener("popstate", route);
+    app.addEventListener("error", event => {
+        if (event.target.matches(".thumbnail img")) {
+            event.target.hidden = true;
+            event.target.nextElementSibling.hidden = false;
+        }
+    }, true);
     route();
 })();

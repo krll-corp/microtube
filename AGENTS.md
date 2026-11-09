@@ -71,7 +71,7 @@ Nginx configuration when relevant. Each service has its own lowercase `dockerfil
 | `frontend/upload/` | Creator upload UI; `/api/upload/` Nginx proxy | 8082 |
 | `frontend/auth/` | Session UI, browser credential hashing; `/api/auth/` proxy | 8083 |
 | `frontend/shared/` | Shared CSS, font and theme preference script | Mounted in all frontends |
-| `backend/video/` | Public streaming, watch history and home feed | 3030 |
+| `backend/video/` | Public streaming, thumbnails, watch history and home feed | 3030 |
 | `backend/text/` | Authenticated cosine search over pgvector embeddings | 3031 |
 | `backend/upload/` | Authenticated upload, file storage, metadata insertion | 3032 |
 | `backend/auth/` | Registration, login, logout and in-memory sessions | 3033 |
@@ -178,15 +178,20 @@ gradients and avatars from older implementations are not design precedent.
 
 - `POST /upload` accepts multipart `file`, `title`, `description`, and `tags`.
   Tags are separated by whitespace. Upload does not wait for AI indexing.
+  The optional `thumbnail` accepts JPEG, PNG or WebP up to 5 MiB and 16 megapixels.
+  Upload encodes that image or the first video frame as a JPEG of up to 480 px.
   The service checks the 2 GiB file limit and decodes a frame from an MP4 video
   track before writing to the volume.
+  Nginx caps the entire multipart request at 2 GiB. Large uploads occupy
+  temporary disk space before the service writes the video chunks.
 - Video IDs are eight URL-safe characters generated with `token_urlsafe(6)`.
   The historical column/parameter name `hash` means this ID, not a content SHA-256.
 - New MP4 uploads are binary 64 MiB parts in `/videos/<id[:2]>/<id[2:]>/`, named
   `000000`, `000001`, etc. The final part may be smaller. `manifest.json` stores
   `size`, `chunk_size`, `chunks` and is atomically published last. These are byte
   fragments, not standalone media/HLS segments. Upload cleans partial writes and
-  new directories after database errors; streaming and video AI mount read-only.
+  new directories and thumbnails after database errors. Video AI mounts the
+  volume read-only. The video service reads MP4 files and writes JPEG previews.
 - `microtube_storage.open_video` provides seek/read across parts for PyAV. Readers
   also support legacy full files at the prefix path and `/videos/<id>`.
   Existing files are not moved automatically; IDs and database records stay stable.
@@ -201,7 +206,7 @@ gradients and avatars from older implementations are not design precedent.
   keys; preserve referenced rows.
   Fresh databases apply `init.sql` and `recommendations.sql`. Apply
   `recommendations.sql` to an existing pgvector database for the feed tables.
-  Old JSONB-vector schemas still need an explicit migration; see README.
+  Old JSONB-vector schemas still need an explicit pgvector migration.
 - Metadata includes `id`, `owner_hash`, `filename`, `size`, `title`, `description`,
   and `tag_ids`. `owner_hash` is the authenticated user's `login_hash`; a submitted
   form field cannot override it. This JSON reference is not a database foreign key.
@@ -264,7 +269,13 @@ gradients and avatars from older implementations are not design precedent.
 - Public `GET /catalog?limit=24&after=<id>` returns `items` (`id`, `title`) and
   `next_after` in primary-key order. Home scrolls through `GET /api/video/feed`
   in pages of 24 and passes the returned `next` query parameters to continue.
-  Previews and durations use placeholders. The title filter is local.
+  Cards load JPEG previews lazily. Duration uses a placeholder. The title filter
+  is local.
+- Public `GET /thumbnail?id=<id>` serves the JPEG at
+  `/videos/<id[:2]>/<id[2:]>.jpg`. Upload publishes it atomically, and the video
+  service generates missing previews from the first frame on demand for older
+  videos. Browsers cache the image for one hour. An unreadable source gives a
+  text fallback.
 - `POST /history?id=<id>` records one row per user and video after the player
   observes 30 seconds or half the clip, whichever comes first. The session
   identifies the user. Repeat views update the last watch time.
@@ -330,6 +341,8 @@ gradients and avatars from older implementations are not design precedent.
 - `BIND_ADDRESS` controls host port publication; it does not create a multi-host
   network. Inside Compose use service DNS names such as `db-videos`, not generated
   container names. Local volumes are not automatically shared between hosts.
+  Frontend links use the default frontend ports. Use one hostname for login and
+  upload so both pages share the session cookie.
 - Persistent volumes are `microtube-videos-db`, `microtube-users-db`,
   `microtube-videos`, and `microtube-hf-cache`. Keep the model cache across rebuilds.
 - `init.sql` runs only for a fresh PostgreSQL data directory. Existing databases

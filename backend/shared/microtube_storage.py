@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 from pathlib import Path
+from tempfile import mkstemp
 
 VIDEO_STORAGE_DIR = Path(os.getenv("VIDEO_STORAGE_DIR", "/videos")).resolve()
 CHUNK_SIZE = 64 * 1024 * 1024
@@ -28,6 +29,29 @@ def find_video(id):
     if legacy.is_relative_to(VIDEO_STORAGE_DIR) and legacy.is_file():
         return legacy
     return None
+
+
+def thumbnail_path(id):
+    path = video_path(id).with_suffix(".jpg")
+    if path.is_symlink():
+        raise ValueError("Invalid thumbnail path")
+    return path
+
+
+def save_thumbnail(id, jpeg):
+    if not jpeg:
+        raise ValueError("Empty thumbnail")
+    path = thumbnail_path(id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, name = mkstemp(dir=path.parent, prefix=".thumbnail-")
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, "wb") as output:
+            output.write(jpeg)
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return path
 
 
 def save_video(id, source):

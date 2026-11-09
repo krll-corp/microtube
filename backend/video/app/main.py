@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from microtube_auth import require_user, user_token
 from microtube_storage import find_video, open_video
 from feed import pool_page, random_page, refresh_pool
+from thumbnail import read_thumbnail
 
 CACHE_LIMIT = max(0, int(os.getenv("VIDEO_CACHE_MB", "64"))) * 1024 * 1024
 CHUNK_SIZE = 1024 * 1024
@@ -29,6 +30,23 @@ def connect():
         host="db-videos",
         connect_timeout=5,
     )
+
+
+def require_video(id):
+    with closing(connect()) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM videos WHERE hash = %s", (id,))
+            if cursor.fetchone() is None:
+                raise HTTPException(404, "Video not found")
+
+
+@app.get("/thumbnail")
+def thumbnail(id: str = Query(pattern=r"^[A-Za-z0-9_-]{8}$")):
+    require_video(id)
+    path = read_thumbnail(id)
+    if path is None:
+        raise HTTPException(404, "Preview unavailable", headers={"Cache-Control": "no-store"})
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=3600"})
 
 
 @app.get("/catalog")
@@ -262,13 +280,7 @@ def load(request: Request, id: str | None = Query(default=None, pattern=r"^[A-Za
     if id is None:
         return {"status": "ok"}
 
-    with closing(connect()) as connection:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1 FROM videos WHERE hash = %s", (id,))
-            if cursor.fetchone() is None:
-                raise HTTPException(status_code=404, detail="Video not found")
-
-
+    require_video(id)
     path = find_video(id)
     if path is None:
         raise HTTPException(status_code=404, detail="Video file not found")

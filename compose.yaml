@@ -73,7 +73,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
-      - videos:/videos:ro
+      - videos:/videos
       - ./backend/shared:/shared:ro
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${VIDEO_API_PORT:-3030}:3030"
