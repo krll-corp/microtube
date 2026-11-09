@@ -41,7 +41,7 @@ These addresses use the defaults in `.env.example`.
 
 | Service | Local address | Role |
 | --- | --- | --- |
-| `frontend-main` | [Home](http://127.0.0.1:8080/) | Feed and player |
+| `frontend-main` | [Home](http://127.0.0.1:8080/) | Feed, search and player |
 | `frontend-monitor` | [Status](http://127.0.0.1:8081/) | HTTP availability |
 | `frontend-upload` | [Upload](http://127.0.0.1:8082/) | Upload form and progress |
 | `frontend-auth` | [Account](http://127.0.0.1:8083/) | Registration and sign-in |
@@ -80,6 +80,10 @@ records a view after 30 seconds of playback or half the clip, whichever is
 shorter. The first personal feed uses 25 distinct watched videos with ready
 embeddings and refreshes after five more eligible views.
 
+Sign in and enter a phrase in the header search. The search service ranks the
+indexed catalog by similarity between the query embedding and video or tag
+embeddings and returns the top 20 matches.
+
 Sessions default to one hour. Restarting auth signs users out. The browser
 uses double SHA-256 hashes as credentials for this prototype. Browser hashing
 requires HTTPS outside localhost. Set `AUTH_COOKIE_SECURE=true` when serving
@@ -88,17 +92,15 @@ the app over HTTPS. [Authentication details](AGENTS.md#authentication)
 ## Current limitations
 
 - Cards show JPEG previews and placeholder durations.
-- The main page filters loaded titles. Semantic search is available through
-  the authenticated API and uses video and tag embeddings.
 - The monitor checks HTTP availability. Use Compose logs for indexing and
   database issues.
 
 ## API quick reference
 
-The backend routes are listed below. The main frontend proxies the video
-routes through `/api/video/`. API clients can send a session cookie or a
-Bearer token for authenticated calls. Cookie-authenticated writes require a
-matching Origin.
+The backend routes are listed below. The main frontend proxies video routes
+through `/api/video/` and search through `/api/search`. API clients can send a
+session cookie or a Bearer token for authenticated calls. Cookie-authenticated
+writes require a matching Origin.
 
 | Backend | Route | Result |
 | --- | --- | --- |

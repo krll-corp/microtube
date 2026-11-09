@@ -23,18 +23,46 @@
             <h3>${escapeHtml(video.title || "Video on MicroTube")}</h3></a>`;
     }
 
+    async function loadSearch(query, grid, status, version) {
+        try {
+            const params = new URLSearchParams({req: query});
+            const response = await fetch(`/api/search?${params}`);
+            if (version !== navigation) return;
+            if (response.status === 401) {
+                const signIn = document.createElement("a");
+                signIn.href = serviceUrl(8083);
+                signIn.textContent = "Sign in";
+                status.replaceChildren(signIn, " to search videos.");
+                return;
+            }
+            if (!response.ok) throw new Error();
+            const results = await response.json();
+            if (version !== navigation) return;
+            grid.innerHTML = results.map(result => card({id: result.id, title: result.metadata?.title})).join("");
+            status.textContent = results.length ? "" : "No matching videos.";
+            status.hidden = results.length > 0;
+        } catch {
+            if (version !== navigation) return;
+            status.textContent = "Could not search videos. Try again.";
+            status.setAttribute("role", "alert");
+        }
+    }
+
     function renderHome(params, version) {
-        const query = params.get("search") || "";
-        const normalized = query.trim().toLocaleLowerCase("en");
+        const query = (params.get("search") || "").trim();
         searchInput.value = query;
-        document.title = normalized ? `Filter: ${query} — MicroTube` : "MicroTube";
+        document.title = query ? `Search for “${query}” — MicroTube` : "MicroTube";
         app.innerHTML = `<nav class="category-bar" aria-label="Feed">
             <a href="/" aria-current="page">Home</a></nav>
-            ${normalized ? `<h1 class="search-heading">Titles matching “${escapeHtml(query)}”</h1>` : ""}
+            ${query ? `<h1 class="search-heading">Search results for “${escapeHtml(query)}”</h1>` : ""}
             <div class="video-grid"></div>
-            <p class="catalog-status" role="status">Loading videos...</p>`;
+            <p class="catalog-status" role="status">${query ? "Searching videos..." : "Loading videos..."}</p>`;
         const grid = app.querySelector(".video-grid");
         const status = app.querySelector(".catalog-status");
+        if (query) {
+            loadSearch(query, grid, status, version);
+            return;
+        }
         let cursor = {};
         let loading = false;
         let finished = false;
@@ -55,14 +83,11 @@
                 if (!response.ok) throw new Error();
                 const page = await response.json();
                 if (version !== navigation) return;
-                const results = page.items.filter(video =>
-                    (video.title || "").toLocaleLowerCase("en").includes(normalized));
-                grid.insertAdjacentHTML("beforeend", results.map(card).join(""));
-                visible += results.length;
+                grid.insertAdjacentHTML("beforeend", page.items.map(card).join(""));
+                visible += page.items.length;
                 cursor = page.next;
                 finished = cursor === null;
-                status.textContent = finished && visible === 0
-                    ? (normalized ? "No matching titles found" : "No videos yet") : "";
+                status.textContent = finished && visible === 0 ? "No videos yet" : "";
                 status.hidden = finished && visible > 0;
             } catch {
                 if (version !== navigation) return;

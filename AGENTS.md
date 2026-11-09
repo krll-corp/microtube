@@ -66,7 +66,7 @@ Nginx configuration when relevant. Each service has its own lowercase `dockerfil
 
 | Path | Responsibility | Default host port |
 | --- | --- | --- |
-| `frontend/main/` | Home feed, local title filter and player UI | 8080 |
+| `frontend/main/` | Home feed, semantic search and player UI | 8080 |
 | `frontend/monitor/` | HTTP availability probes through `nginx.conf` | 8081 |
 | `frontend/upload/` | Creator upload UI; `/api/upload/` Nginx proxy | 8082 |
 | `frontend/auth/` | Session UI, browser credential hashing; `/api/auth/` proxy | 8083 |
@@ -268,12 +268,12 @@ gradients and avatars from older implementations are not design precedent.
   are skipped; limit is 1–100. `backend/text/app/search.sql` uses `videos.vector`,
   `tags.vector` and `metadata.tag_ids`, scoring shared tags once per query. It
   performs an exact cosine scan and top-k before metadata retrieval, not ANN search.
-  Text search frontend integration remains future work.
+  The main page submits the search form to `/api/search` on the same origin.
+  Nginx proxies it to `backend-text:3031/search` and forwards the session.
 - Public `GET /catalog?limit=24&after=<id>` returns `items` (`id`, `title`) and
   `next_after` in primary-key order. Home scrolls through `GET /api/video/feed`
   in pages of 24 and passes the returned `next` query parameters to continue.
-  Cards load JPEG previews lazily. Duration uses a placeholder. The title filter
-  is local.
+  Cards load JPEG previews lazily. Duration uses a placeholder.
 - Public `GET /thumbnail?id=<id>` serves the JPEG at
   `/videos/<id[:2]>/<id[2:]>.jpg`. Upload publishes it atomically, and the video
   service generates missing previews from the first frame on demand for older
