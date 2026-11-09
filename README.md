@@ -28,9 +28,9 @@ Uploaded video with database metadata: [desktop](docs/screenshots/watch-live.jpg
 
 Implementation and configuration reviewed against repository source on 2026-10-30.
 
-- The home catalog loads real videos from PostgreSQL in ID order, 24 at a time,
-  loading the next page on scroll. Previews and durations are placeholders;
-  these values are not stored yet. Related-video recommendations are still planned.
+- Home loads personalized recommendations or a shuffled catalog from PostgreSQL,
+  24 at a time as you scroll. Previews and durations use placeholders. Related
+  videos on the watch page are still planned.
 - Watch pages load their title, description and tags through the metadata endpoint.
   Uploaded videos use native `<video controls>`; the main frontend proxies
   `/api/video/videos?id=<id>` to `backend-video:3030/videos?id=<id>`.
@@ -99,7 +99,7 @@ Addresses below use the default ports from `.env.example`.
 
 | Service | Local address | Current role |
 | --- | --- | --- |
-| `frontend-main` | http://127.0.0.1:8080 | Database catalog, local title filter and watch-page UI |
+| `frontend-main` | http://127.0.0.1:8080 | Home feed, local title filter and watch-page UI |
 | `frontend-upload` | http://127.0.0.1:8082 | Creator upload UI with preview and progress |
 | `frontend-monitor` | http://127.0.0.1:8081 | HTTP availability monitor |
 | `frontend-auth` | http://127.0.0.1:8083 | Login, registration and session UI |
@@ -159,6 +159,8 @@ to `/api/upload/upload` on port `8082`, proxied to `backend-upload:3032/upload`.
 Tags are separated by whitespace. The UI shows upload progress and the server's
 response. The endpoint stores MP4 bytes in `/videos/<id[:2]>/<id[2:]>/`,
 writes its metadata to PostgreSQL, and returns `stored: true`.
+Before saving, it checks the 2 GiB file limit and uses PyAV to decode a frame
+from an MP4 video track.
 Each upload opens its own PostgreSQL connection after saving the file. Tag
 allocation and video insertion share one transaction; the connection is closed
 after commit or rollback. A connection or insertion failure removes the new file.
@@ -197,7 +199,16 @@ Text search uses these vectors; related-video lookup is still planned. The video
 builds pgvector 0.8.7 on the existing PostgreSQL 16 Alpine base; the users database
 is unchanged.
 
-Fresh databases get this schema automatically. The old JSONB `videos.vectors`
+Fresh databases get this schema and the feed tables automatically. For an
+existing pgvector database, apply the additive feed migration and rebuild the
+affected services.
+
+```bash
+docker compose exec -T db-videos sh -c 'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < db/videos/recommendations.sql
+docker compose up -d --build backend-video backend-upload frontend-main
+```
+
+The old JSONB `videos.vectors`
 column is no longer used. For an empty development database, recreate only the
 `videos` database before restarting consumers. **This deletes its records and
 tags**, while preserving user accounts, video files and the model cache:
@@ -206,7 +217,7 @@ tags**, while preserving user accounts, video files and the model cache:
 docker compose stop backend-upload backend-indexing
 docker compose up -d --build --no-deps --wait db-videos
 docker compose exec -T db-videos sh -c 'dropdb --force -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
-docker compose exec -T db-videos sh -c 'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < db/videos/init.sql
+cat db/videos/init.sql db/videos/recommendations.sql | docker compose exec -T db-videos sh -c 'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 docker compose up -d --build --no-deps backend-upload backend-indexing
 ```
 
@@ -259,15 +270,25 @@ that the ID exists in PostgreSQL and that the file exists in `/videos`. HTTP
 `Range` requests support seeking (`206 Partial Content`); `HEAD` returns headers
 without reading the file body. `GET /videos` without an ID is the health check.
 
-Public `GET /catalog?limit=24&after=<id>` returns `items` containing only `id` and
-`title`, plus `next_after` (null on the last page). Omit `after` for the first page;
-`limit` defaults to 24 and accepts 1–100. Results are ordered by ID, independent of
-AI indexing status. This is not upload-date ordering. The query uses a primary-key
-range and returns at most `limit + 1` rows, without loading embeddings or counting all
-videos. The frontend calls `/api/video/catalog` and loads more when the end of the
-grid approaches the viewport, without a pagination button. Its title filter is
-local; it does not call the authenticated semantic-search API. Preview and duration
-placeholders do not request video bytes; playback starts on the watch page.
+Public `GET /catalog?limit=24&after=<id>` returns `items` with `id` and `title`
+in primary-key order and `next_after` (null on the last page). The main page
+uses `GET /api/video/feed` for the same cards, with a `next` object containing
+the query parameters for the next page. Both endpoints accept limits of 1–100.
+The title filter still acts on loaded cards. Playback starts on the watch page.
+
+The player sends `POST /api/video/history?id=<id>` after 30 seconds of playback
+or half the video for clips shorter than a minute. This requires a session and
+returns 204. History keeps one row per user and video with first and last watch
+times. Rewatching updates the last watch time.
+
+The first personal feed uses 25 distinct watched videos with ready embeddings.
+It averages the latest 20 by first watch time and ranks up to 100 unseen indexed
+videos by cosine distance. Five more eligible videos trigger a refresh the next
+time the user opens Home. The two latest pool versions retain ordered IDs and
+let scrolling continue through the previous version. Expired cursors return 409.
+Guests, accounts below the threshold, and empty pools get a seeded shuffle of
+the catalog. Each scroll session keeps its seed or pool version. Feed responses
+use `Cache-Control: private, no-store`.
 
 `GET /metadata?id=<id>` is public and returns only `id`, `title`, `description`
 and tag names. One SQL query resolves ordered `metadata.tag_ids`; embeddings are

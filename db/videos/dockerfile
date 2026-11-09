@@ -8,4 +8,4 @@ copy --from=pgvector-build /usr/local/lib/postgresql/vector.so /usr/local/lib/po
 copy --from=pgvector-build /usr/local/share/postgresql/extension/vector* /usr/local/share/postgresql/extension/
 
 expose 5432
-copy init.sql /docker-entrypoint-initdb.d/init.sql
+copy init.sql recommendations.sql /docker-entrypoint-initdb.d/

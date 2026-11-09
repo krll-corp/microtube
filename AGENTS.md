@@ -39,8 +39,8 @@ The intended MVP includes:
   `assets/main-page.png` and `assets/video-page.png`. Do not mistake mockups for
   proof of implemented functionality.
 
-Discovery initially uses content similarity. Watch-history personalization,
-comments, subscriptions, and federation are outside the current MVP.
+Discovery uses content similarity. Watch history personalizes the home feed.
+Comments, subscriptions, and federation are outside the current MVP.
 The proposed `microtube.local` address is a development idea, not a deployed domain.
 
 ## Planned versus implemented
@@ -66,12 +66,12 @@ Nginx configuration when relevant. Each service has its own lowercase `dockerfil
 
 | Path | Responsibility | Default host port |
 | --- | --- | --- |
-| `frontend/main/` | Database catalog, local title filter and player UI | 8080 |
+| `frontend/main/` | Home feed, local title filter and player UI | 8080 |
 | `frontend/monitor/` | HTTP availability probes through `nginx.conf` | 8081 |
 | `frontend/upload/` | Creator upload UI; `/api/upload/` Nginx proxy | 8082 |
 | `frontend/auth/` | Session UI, browser credential hashing; `/api/auth/` proxy | 8083 |
 | `frontend/shared/` | Shared CSS, font and theme preference script | Mounted in all frontends |
-| `backend/video/` | Public streaming and bounded RAM cache | 3030 |
+| `backend/video/` | Public streaming, watch history and home feed | 3030 |
 | `backend/text/` | Authenticated cosine search over pgvector embeddings | 3031 |
 | `backend/upload/` | Authenticated upload, file storage, metadata insertion | 3032 |
 | `backend/auth/` | Registration, login, logout and in-memory sessions | 3033 |
@@ -178,6 +178,8 @@ gradients and avatars from older implementations are not design precedent.
 
 - `POST /upload` accepts multipart `file`, `title`, `description`, and `tags`.
   Tags are separated by whitespace. Upload does not wait for AI indexing.
+  The service checks the 2 GiB file limit and decodes a frame from an MP4 video
+  track before writing to the volume.
 - Video IDs are eight URL-safe characters generated with `token_urlsafe(6)`.
   The historical column/parameter name `hash` means this ID, not a content SHA-256.
 - New MP4 uploads are binary 64 MiB parts in `/videos/<id[:2]>/<id[2:]>/`, named
@@ -197,8 +199,9 @@ gradients and avatars from older implementations are not design precedent.
   index. Upload stores ordered `metadata.tag_ids`; names live only in `tags.tag`
   and are returned in the upload response for the UI. JSON IDs are not foreign
   keys; preserve referenced rows.
-  Fresh databases use `init.sql`. Existing JSONB-vector schemas need an explicit
-  migration or an authorized reset of an empty development database; see README.
+  Fresh databases apply `init.sql` and `recommendations.sql`. Apply
+  `recommendations.sql` to an existing pgvector database for the feed tables.
+  Old JSONB-vector schemas still need an explicit migration; see README.
 - Metadata includes `id`, `owner_hash`, `filename`, `size`, `title`, `description`,
   and `tag_ids`. `owner_hash` is the authenticated user's `login_hash`; a submitted
   form field cannot override it. This JSON reference is not a database foreign key.
@@ -228,8 +231,8 @@ gradients and avatars from older implementations are not design precedent.
   `GET /user` returns the login hash or null. The shared `require_user` dependency
   calls `/user`, returns the identity, or rejects an invalid session with 401.
 - Shared code is mounted read-only at `/shared` with `PYTHONPATH=/shared`.
-  Upload and search require authentication; streaming is public. AI services
-  and indexing do not require a user's session.
+  Upload, watch history and search require authentication. Streaming and the
+  shuffled feed are public. AI services and indexing do not use user sessions.
 
 ### Indexing, discovery, and streaming
 
@@ -259,12 +262,17 @@ gradients and avatars from older implementations are not design precedent.
   performs an exact cosine scan and top-k before metadata retrieval, not ANN search.
   Frontend integration and related-video lookup remain future work.
 - Public `GET /catalog?limit=24&after=<id>` returns `items` (`id`, `title`) and
-  `next_after` (null on the last page). It orders by primary-key ID, not upload
-  date; includes unindexed uploads; and returns at most `limit + 1` rows. Limit is
-  1–100. The main UI loads 24 at a time through `/api/video/catalog` on scroll,
-  without a pagination button. Previews and durations are explicit placeholders,
-  with no video-byte requests. The title filter is local; semantic search is not
-  connected yet. Related-video recommendations have an empty placeholder.
+  `next_after` in primary-key order. Home scrolls through `GET /api/video/feed`
+  in pages of 24 and passes the returned `next` query parameters to continue.
+  Previews and durations use placeholders. The title filter is local.
+- `POST /history?id=<id>` records one row per user and video after the player
+  observes 30 seconds or half the clip, whichever comes first. The session
+  identifies the user. Repeat views update the last watch time.
+- Home builds its first personal pool at 25 distinct watched videos with ready
+  embeddings and refreshes on a new visit after five more. It averages the
+  latest 20 by first watch time and saves up to 100 ordered unseen video IDs.
+  Two versions per user support ongoing scrolls. Guests and users without a
+  usable pool get a seeded shuffle. Feed responses are private and uncached.
 - Watch pages use native video controls and `/api/video/videos`, proxied by
   `frontend/main/nginx.conf` to `backend-video:3030/videos`.
 - Public `GET /metadata?id=<id>` returns the title, description and ordered tag
@@ -272,8 +280,6 @@ gradients and avatars from older implementations are not design precedent.
   `/api/video/metadata`; share/upload links contain only the video ID. Responses
   use a 60-second public HTTP cache and ETag/304 validation. Fresh browser cache
   hits avoid the API; revalidation still queries PostgreSQL.
-- Server-side media validation is incomplete; HTML `accept="video/mp4"` only
-  affects the file picker. Treat UI placeholders and historical reports accordingly.
 
 ## Scope and simplicity
 

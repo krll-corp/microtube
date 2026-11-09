@@ -8,9 +8,11 @@ from secrets import token_hex
 from threading import Lock
 
 import psycopg2
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from microtube_auth import require_user, user_token
 from microtube_storage import find_video, open_video
+from feed import pool_page, random_page, refresh_pool
 
 CACHE_LIMIT = max(0, int(os.getenv("VIDEO_CACHE_MB", "64"))) * 1024 * 1024
 CHUNK_SIZE = 1024 * 1024
@@ -46,6 +48,67 @@ def catalog(
         "items": [{"id": row[0], "title": row[1]} for row in rows[:limit]],
         "next_after": rows[limit - 1][0] if len(rows) > limit else None,
     }
+
+
+@app.post("/history", status_code=204)
+def record_watch(
+    id: str = Query(pattern=r"^[A-Za-z0-9_-]{8}$"),
+    login_hash: str = Depends(require_user),
+):
+    with closing(connect()) as connection, connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO watch_history (login_hash, video_id) "
+                "SELECT %s, hash FROM videos WHERE hash = %s "
+                "ON CONFLICT (login_hash, video_id) DO UPDATE SET watched_at = clock_timestamp()",
+                (login_hash, id),
+            )
+            if not cursor.rowcount:
+                raise HTTPException(404, "Video not found")
+    return Response(status_code=204)
+
+
+@app.get("/feed")
+def feed(
+    limit: int = Query(default=24, ge=1, le=100),
+    after: str | None = Query(default=None, pattern=r"^[A-Za-z0-9_-]{8}$"),
+    seed: str | None = Query(default=None, pattern=r"^[a-f0-9]{16}$"),
+    pool: int | None = Query(default=None, ge=1, le=9223372036854775807),
+    token=Depends(user_token),
+):
+    if (seed and pool) or bool(after) != bool(seed or pool):
+        raise HTTPException(422, "Invalid feed cursor")
+    login_hash = None
+    if pool is not None or (seed is None and token is not None):
+        try:
+            login_hash = require_user(token)
+        except HTTPException as error:
+            if pool is not None or error.status_code not in (401, 503):
+                raise
+
+    with closing(connect()) as connection, connection:
+        with connection.cursor() as cursor:
+            if after is None and login_hash is not None:
+                pool = refresh_pool(cursor, login_hash)
+            if pool is not None:
+                rows = pool_page(cursor, login_hash, pool, after, limit + 1)
+                if after is None and not rows:
+                    pool = None
+            if pool is None:
+                seed = seed or token_hex(8)
+                rows = random_page(cursor, seed, after, limit + 1)
+
+    next_page = None
+    if len(rows) > limit:
+        next_page = {"after": rows[limit - 1][0]}
+        if pool is not None:
+            next_page["pool"] = str(pool)
+        else:
+            next_page["seed"] = seed
+    return JSONResponse(
+        {"items": [{"id": row[0], "title": row[1]} for row in rows[:limit]], "next": next_page},
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 @app.get("/metadata")

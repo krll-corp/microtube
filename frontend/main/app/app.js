@@ -25,14 +25,14 @@
         const normalized = query.trim().toLocaleLowerCase("en");
         searchInput.value = query;
         document.title = normalized ? `Filter: ${query} — MicroTube` : "MicroTube";
-        app.innerHTML = `<nav class="category-bar" aria-label="Catalog">
-            <a href="/" aria-current="page">All</a></nav>
+        app.innerHTML = `<nav class="category-bar" aria-label="Feed">
+            <a href="/" aria-current="page">Home</a></nav>
             ${normalized ? `<h1 class="search-heading">Titles matching “${escapeHtml(query)}”</h1>` : ""}
             <div class="video-grid"></div>
             <p class="catalog-status" role="status">Loading videos...</p>`;
         const grid = app.querySelector(".video-grid");
         const status = app.querySelector(".catalog-status");
-        let after = null;
+        let cursor = {};
         let loading = false;
         let finished = false;
         let visible = 0;
@@ -47,9 +47,8 @@
             observer.unobserve(status);
             status.textContent = "Loading videos...";
             try {
-                const target = new URLSearchParams({limit: "24"});
-                if (after) target.set("after", after);
-                const response = await fetch(`/api/video/catalog?${target}`);
+                const target = new URLSearchParams({limit: "24", ...cursor});
+                const response = await fetch(`/api/video/feed?${target}`);
                 if (!response.ok) throw new Error();
                 const page = await response.json();
                 if (version !== navigation) return;
@@ -57,8 +56,8 @@
                     (video.title || "").toLocaleLowerCase("en").includes(normalized));
                 grid.insertAdjacentHTML("beforeend", results.map(card).join(""));
                 visible += results.length;
-                after = page.next_after;
-                finished = after === null;
+                cursor = page.next;
+                finished = cursor === null;
                 status.textContent = finished && visible === 0
                     ? (normalized ? "No matching titles found" : "No videos yet") : "";
                 status.hidden = finished && visible > 0;
@@ -120,6 +119,22 @@
         const videoError = app.querySelector("#video-error");
         player.src = `/api/video/videos?id=${encodeURIComponent(id)}`;
         player.addEventListener("error", () => { videoError.hidden = false; });
+        let nextReportAt = 0;
+        player.addEventListener("timeupdate", async () => {
+            if (Date.now() < nextReportAt || !Number.isFinite(player.duration) || player.duration <= 0) return;
+            const played = player.played;
+            let seconds = 0;
+            for (let i = 0; i < played.length; i++) seconds += played.end(i) - played.start(i);
+            if (seconds < Math.min(30, player.duration / 2)) return;
+            nextReportAt = Infinity;
+            try {
+                const response = await fetch(`/api/video/history?id=${encodeURIComponent(id)}`, {
+                    method: "POST", keepalive: true
+                });
+                if (response.status < 500) return;
+            } catch {}
+            nextReportAt = Date.now() + 5000;
+        });
     }
 
     function route() {
