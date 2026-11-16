@@ -74,7 +74,7 @@ controls with HTTP Range seeking.
 The Related videos panel shows up to three matches by cosine distance once the
 current video has been indexed. On narrow screens the cards appear below the player.
 Cards on Home, in search results and in Related videos show the MP4 duration as
-`M:SS` or `H:MM:SS`.
+`M:SS` or `H:MM:SS`. Cards show `--:--` when the duration is unavailable.
 
 Home loads 24 cards at a time as you scroll. Guests and accounts with too
 little history get a shuffled catalog. For signed-in users, the player
@@ -123,16 +123,6 @@ and the JPEG preview lives at `/videos/Ab/12_cdE.jpg`. Older uploads get a
 preview on their first thumbnail request. The media, database and model
 cache volumes survive container recreation.
 
-For existing uploads, run the duration backfill once after rebuilding the
-video service, upload service and main frontend. The backfill reads MP4
-metadata and updates only missing durations. Cards show `--:--` when the
-duration is unavailable.
-
-```sh
-docker compose up -d --build --wait backend-video backend-upload frontend-main
-docker compose exec -T backend-video python /app/backfill_durations.py
-```
-
 Fresh databases initialize their schemas automatically. To upgrade an
 existing pgvector database from before the personalized feed, run the feed
 migration once with `db-videos` running.
@@ -160,3 +150,11 @@ and update on browser reload. Restart consumers after shared Python changes.
 Use `docker compose config --quiet` to validate configuration and
 `docker compose ps` to check service health. Service contracts, storage and
 indexing internals, and contributor rules are in [AGENTS.md](AGENTS.md).
+
+The [ci workflow](.github/workflows/ci.yml) runs syntax checks and the test suite
+on pushes and pull requests. The suite is currently empty. Run it locally with
+Python 3.15.
+
+```sh
+python3.15 tests/general-tests.py
+```

@@ -16,7 +16,7 @@ app = FastAPI()
 
 def validate_upload(file):
     try:
-        with av.open(file.file, format="mp4") as container:
+        with av.open(file.file, mode="r", format="mp4") as container:
             brand = container.metadata.get("major_brand", "").strip()
             if not brand or brand.startswith(("qt", "3g", "M4A", "mjp2")):
                 raise ValueError("Expected an MP4 video track")

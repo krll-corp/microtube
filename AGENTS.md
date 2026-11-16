@@ -212,10 +212,9 @@ gradients and avatars from older implementations are not design precedent.
   `recommendations.sql` to an existing pgvector database for the feed tables.
   Old JSONB-vector schemas still need an explicit pgvector migration.
 - Metadata includes `id`, `owner_hash`, `filename`, `size`, `title`, `description`,
-  `tag_ids` and `duration_seconds` (a number or null). The README gives the
-  backfill command for older uploads. `owner_hash` is the authenticated user's
-  `login_hash`; a submitted form field cannot override it. This JSON reference
-  is not a database foreign key.
+  `tag_ids` and `duration_seconds` (a number or null). `owner_hash` is the
+  authenticated user's `login_hash`; a submitted form field cannot override it.
+  This JSON reference is not a database foreign key.
   Older records may lack an owner; do not invent one without an explicit mapping.
 - Keep SQL parameterized and use `psycopg2.extras.Json` for JSONB values. The upload
   service uses a separate connection and transaction per request, closes it after
@@ -409,8 +408,9 @@ do not assert end-to-end testing if it did not happen. Review README during fina
   real service flow when available; for frontend changes, inspect it in a browser.
 - Add focused tests where they catch meaningful regressions. Avoid test scaffolding
   that outweighs a small change. Report which checks actually ran and any blockers.
-- For now, keep local test scripts temporary and outside Git. A GitHub Actions
-  workflow named `ci` will be added separately; do not introduce it implicitly.
+- The GitHub Actions workflow `ci` runs syntax checks and
+  `tests/general-tests.py` on pushes and pull requests. Keep ad hoc local test
+  scripts outside Git.
 - Build and start only the services needed for verification; avoid unnecessary
   model downloads and full-cluster rebuilds.
 - A commit may add at most **500 text lines**, across all files. Deletions do not
@@ -426,7 +426,7 @@ do not assert end-to-end testing if it did not happen. Review README during fina
   also satisfies the rule.
 - Split larger work into independently understandable, working changes. Do not
   split arbitrarily or conceal a large redesign behind many mechanical commits.
-- This is a contributor and agent rule. Git hooks and automatic CI blockers are
-  not installed; review the actual diff before handing work back.
+- This is a contributor and agent rule. Review the actual diff before handing
+  work back.
 - Coding agents must not stage or commit project changes, push, merge, or rewrite
   history without an explicit human instruction.
