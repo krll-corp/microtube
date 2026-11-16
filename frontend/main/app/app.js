@@ -13,13 +13,26 @@
     let navigation = 0;
     let catalogObserver;
 
+    function formatDuration(seconds) {
+        if (!Number.isFinite(seconds) || seconds <= 0) return null;
+        const total = Math.floor(seconds);
+        const hours = Math.floor(total / 3600);
+        const minutes = Math.floor(total / 60) % 60;
+        const remainder = String(total % 60).padStart(2, "0");
+        return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${remainder}` : `${minutes}:${remainder}`;
+    }
+
     function card(video) {
         const id = encodeURIComponent(video.id);
+        const duration = formatDuration(video.duration_seconds);
+        const stamp = duration
+            ? `<time class="duration" datetime="PT${Math.floor(video.duration_seconds)}S">${duration}</time>`
+            : '<span class="duration" aria-label="Duration unavailable">--:--</span>';
         return `<a class="video-card" href="/?video=${id}">
             <div class="thumbnail">
                 <img src="/api/video/thumbnail?id=${id}" alt="" loading="lazy" decoding="async">
                 <span hidden>Preview unavailable</span>
-                <span class="duration" aria-label="Duration unavailable">--:--</span></div>
+                ${stamp}</div>
             <h3>${escapeHtml(video.title || "Video on MicroTube")}</h3></a>`;
     }
 
@@ -38,7 +51,9 @@
             if (!response.ok) throw new Error();
             const results = await response.json();
             if (version !== navigation) return;
-            grid.innerHTML = results.map(result => card({id: result.id, title: result.metadata?.title})).join("");
+            grid.innerHTML = results.map(({id, metadata}) => card({
+                id, title: metadata?.title, duration_seconds: metadata?.duration_seconds,
+            })).join("");
             status.textContent = results.length ? "" : "No matching videos.";
             status.hidden = results.length > 0;
         } catch {

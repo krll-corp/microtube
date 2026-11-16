@@ -49,6 +49,13 @@ def thumbnail(id: str = Query(pattern=r"^[A-Za-z0-9_-]{8}$")):
     return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=3600"})
 
 
+def video_cards(rows):
+    return [
+        {"id": id, "title": title, "duration_seconds": duration}
+        for id, title, duration in rows if id is not None
+    ]
+
+
 @app.get("/catalog")
 def catalog(
     limit: int = Query(default=24, ge=1, le=100),
@@ -57,13 +64,13 @@ def catalog(
     with closing(connect()) as connection:
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT hash, metadata->>'title' FROM videos "
+                "SELECT hash, metadata->>'title', metadata->'duration_seconds' FROM videos "
                 "WHERE hash > %s ORDER BY hash LIMIT %s",
                 (after or "", limit + 1),
             )
             rows = cursor.fetchall()
     return {
-        "items": [{"id": row[0], "title": row[1]} for row in rows[:limit]],
+        "items": video_cards(rows[:limit]),
         "next_after": rows[limit - 1][0] if len(rows) > limit else None,
     }
 
@@ -124,7 +131,7 @@ def feed(
         else:
             next_page["seed"] = seed
     return JSONResponse(
-        {"items": [{"id": row[0], "title": row[1]} for row in rows[:limit]], "next": next_page},
+        {"items": video_cards(rows[:limit]), "next": next_page},
         headers={"Cache-Control": "private, no-store"},
     )
 
@@ -134,7 +141,7 @@ def metadata(request: Request, id: str = Query(pattern=r"^[A-Za-z0-9_-]{8}$")):
     with closing(connect()) as connection:
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT metadata->>'title', metadata->>'description', "
+                "SELECT metadata->>'title', metadata->>'description', metadata->'duration_seconds', "
                 "COALESCE((SELECT jsonb_agg(tags.tag ORDER BY ids.position) "
                 "FROM jsonb_array_elements_text(videos.metadata->'tag_ids') "
                 "WITH ORDINALITY AS ids(value, position) "
@@ -145,7 +152,11 @@ def metadata(request: Request, id: str = Query(pattern=r"^[A-Za-z0-9_-]{8}$")):
             row = cursor.fetchone()
     if row is None:
         raise HTTPException(404, "Video not found", headers={"Cache-Control": "no-store"})
-    response = JSONResponse({"id": id, "title": row[0], "description": row[1], "tags": row[2]})
+    title, description, duration_seconds, tags = row
+    response = JSONResponse({
+        "id": id, "title": title, "description": description,
+        "duration_seconds": duration_seconds, "tags": tags,
+    })
     etag = f'"{sha256(response.body).hexdigest()}"'
     headers = {"ETag": etag, "Cache-Control": "public, max-age=60, must-revalidate"}
     if any(value.strip() in (etag, "W/" + etag, "*")
@@ -161,7 +172,7 @@ def related_videos(id: str = Query(pattern=r"^[A-Za-z0-9_-]{8}$")):
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT related.hash, candidate.metadata->>'title'
+                SELECT related.hash, candidate.metadata->>'title', candidate.metadata->'duration_seconds'
                 FROM videos AS source
                 LEFT JOIN LATERAL (
                     SELECT hash, vector <=> source.vector AS distance
@@ -180,7 +191,7 @@ def related_videos(id: str = Query(pattern=r"^[A-Za-z0-9_-]{8}$")):
             rows = cursor.fetchall()
     if not rows:
         raise HTTPException(404, "Video not found")
-    return {"items": [{"id": video_id, "title": title} for video_id, title in rows if video_id is not None]}
+    return {"items": video_cards(rows)}
 
 
 def byte_ranges(value, size):

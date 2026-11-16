@@ -8,7 +8,7 @@ import psycopg2
 from fastapi import Depends, FastAPI, Form, Header, HTTPException, UploadFile
 from psycopg2.extras import Json
 from microtube_auth import require_user
-from microtube_media import encode_thumbnail, first_video_frame
+from microtube_media import encode_thumbnail, first_video_frame, video_duration_seconds
 from microtube_storage import find_video, save_thumbnail, save_video, thumbnail_path, video_path
 from microtube_tags import get_tag_ids
 
@@ -20,7 +20,7 @@ def validate_upload(file):
             brand = container.metadata.get("major_brand", "").strip()
             if not brand or brand.startswith(("qt", "3g", "M4A", "mjp2")):
                 raise ValueError("Expected an MP4 video track")
-            return first_video_frame(container)
+            return first_video_frame(container), video_duration_seconds(container)
     except (av.FFmpegError, ValueError) as error:
         raise HTTPException(415, "Expected an MP4 with a readable video track") from error
     finally:
@@ -83,7 +83,7 @@ def run(
     thumbnail: UploadFile | None = None,
     idempotency_key: Annotated[str | None, Header(pattern=r"^[a-f0-9]{32}$")] = None,
 ):
-    frame = validate_upload(file)
+    frame, duration_seconds = validate_upload(file)
     jpeg = uploaded_thumbnail(thumbnail) if thumbnail and thumbnail.filename else encode_thumbnail(frame)
     del frame
     while True:
@@ -108,6 +108,7 @@ def run(
         "size": size,
         "title": title,
         "description": description,
+        "duration_seconds": duration_seconds,
     }
     if idempotency_key is not None:
         metadata["upload_key"] = idempotency_key
@@ -144,6 +145,7 @@ def run(
         "size": metadata["size"],
         "title": metadata["title"],
         "description": metadata["description"],
+        "duration_seconds": metadata.get("duration_seconds"),
         "tags": tag_names,
         "tag_ids": metadata["tag_ids"],
         "stored": True,

@@ -57,10 +57,11 @@ def refresh_pool(cursor, login_hash):
 def pool_page(cursor, login_hash, pool, after, limit):
     cursor.execute(
         """
-        SELECT cards.id, cards.title
+        SELECT cards.id, cards.title, cards.duration_seconds
         FROM user_feed f
         LEFT JOIN LATERAL (
-            SELECT v.hash AS id, v.metadata->>'title' AS title, p.position
+            SELECT v.hash AS id, v.metadata->>'title' AS title,
+                   v.metadata->'duration_seconds' AS duration_seconds, p.position
             FROM unnest(f.video_ids) WITH ORDINALITY AS p(id, position)
             JOIN videos v ON v.hash = p.id
             WHERE p.position > COALESCE(array_position(f.video_ids, %(after)s), 0)
@@ -84,7 +85,7 @@ def pool_page(cursor, login_hash, pool, after, limit):
 def random_page(cursor, seed, after, limit):
     cursor.execute(
         """
-        SELECT hash, metadata->>'title' FROM videos
+        SELECT hash, metadata->>'title', metadata->'duration_seconds' FROM videos
         WHERE %(after)s IS NULL OR
               (md5(%(seed)s || hash), hash) > (md5(%(seed)s || %(after)s), %(after)s)
         ORDER BY md5(%(seed)s || hash), hash LIMIT %(limit)s

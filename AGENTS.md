@@ -180,8 +180,9 @@ gradients and avatars from older implementations are not design precedent.
   Tags are separated by whitespace. Upload does not wait for AI indexing.
   The optional `thumbnail` accepts JPEG, PNG or WebP up to 16 megapixels.
   Upload encodes that image or the first video frame as a JPEG of up to 480 px.
-  The service decodes a frame from an MP4 video track before writing to the
-  volume. Nginx streams uploads with no fixed request body size limit.
+  The service decodes a frame from an MP4 video track and reads the duration
+  before writing to the volume. Nginx streams uploads with no fixed request
+  body size limit.
   Large multipart files spool to disk. The service reads images in 64 KiB
   pieces and writes video chunks from the temporary file.
   The browser sends an `Idempotency-Key` for each upload attempt. The server
@@ -211,8 +212,10 @@ gradients and avatars from older implementations are not design precedent.
   `recommendations.sql` to an existing pgvector database for the feed tables.
   Old JSONB-vector schemas still need an explicit pgvector migration.
 - Metadata includes `id`, `owner_hash`, `filename`, `size`, `title`, `description`,
-  and `tag_ids`. `owner_hash` is the authenticated user's `login_hash`; a submitted
-  form field cannot override it. This JSON reference is not a database foreign key.
+  `tag_ids` and `duration_seconds` (a number or null). The README gives the
+  backfill command for older uploads. `owner_hash` is the authenticated user's
+  `login_hash`; a submitted form field cannot override it. This JSON reference
+  is not a database foreign key.
   Older records may lack an owner; do not invent one without an explicit mapping.
 - Keep SQL parameterized and use `psycopg2.extras.Json` for JSONB values. The upload
   service uses a separate connection and transaction per request, closes it after
@@ -270,10 +273,10 @@ gradients and avatars from older implementations are not design precedent.
   performs an exact cosine scan and top-k before metadata retrieval, not ANN search.
   The main page submits the search form to `/api/search` on the same origin.
   Nginx proxies it to `backend-text:3031/search` and forwards the session.
-- Public `GET /catalog?limit=24&after=<id>` returns `items` (`id`, `title`) and
-  `next_after` in primary-key order. Home scrolls through `GET /api/video/feed`
-  in pages of 24 and passes the returned `next` query parameters to continue.
-  Cards load JPEG previews lazily. Duration uses a placeholder.
+- Public `GET /catalog?limit=24&after=<id>` returns `items` and `next_after` in
+  primary-key order. Home scrolls through `GET /api/video/feed` in pages of 24
+  and passes the returned `next` query parameters to continue. Cards carry
+  `id`, `title` and nullable `duration_seconds`. They load JPEG previews lazily.
 - Public `GET /thumbnail?id=<id>` serves the JPEG at
   `/videos/<id[:2]>/<id[2:]>.jpg`. Upload publishes it atomically, and the video
   service generates missing previews from the first frame on demand for older
@@ -289,14 +292,14 @@ gradients and avatars from older implementations are not design precedent.
   usable pool get a seeded shuffle. Feed responses are private and uncached.
 - Watch pages use native video controls and `/api/video/videos`, proxied by
   `frontend/main/nginx.conf` to `backend-video:3030/videos`.
-- Public `GET /related?id=<id>` returns up to three cards (`id`, `title`) ranked
+- Public `GET /related?id=<id>` returns up to three cards ranked
   by cosine distance from the current video's embedding. It excludes the
   current video and candidates without indexed embeddings. A video without
   an indexed embedding yields an empty list. The watch page loads these cards
   independently of playback through `/api/video/related`.
-- Public `GET /metadata?id=<id>` returns the title, description and ordered tag
-  names in one SQL query, without embeddings. Real watch pages fetch it through
-  `/api/video/metadata`; share/upload links contain only the video ID. Responses
+- Public `GET /metadata?id=<id>` returns the title, description, duration and
+  ordered tag names in one SQL query, without embeddings. Watch pages fetch it
+  through `/api/video/metadata`. Share and upload links carry only the video ID. Responses
   use a 60-second public HTTP cache and ETag/304 validation. Fresh browser cache
   hits avoid the API; revalidation still queries PostgreSQL.
 

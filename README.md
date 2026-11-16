@@ -73,6 +73,8 @@ load titles, descriptions and tags from PostgreSQL and use native video
 controls with HTTP Range seeking.
 The Related videos panel shows up to three matches by cosine distance once the
 current video has been indexed. On narrow screens the cards appear below the player.
+Cards on Home, in search results and in Related videos show the MP4 duration as
+`M:SS` or `H:MM:SS`.
 
 Home loads 24 cards at a time as you scroll. Guests and accounts with too
 little history get a shuffled catalog. For signed-in users, the player
@@ -91,7 +93,6 @@ the app over HTTPS. [Authentication details](AGENTS.md#authentication)
 
 ## Current limitations
 
-- Cards show JPEG previews and placeholder durations.
 - The monitor checks HTTP availability. Use Compose logs for indexing and
   database issues.
 
@@ -107,7 +108,7 @@ writes require a matching Origin.
 | Video | `GET /feed?limit=24` | Personal or shuffled cards with a continuation cursor |
 | Video | `GET /catalog?limit=24&after=<id>` | Public catalog ordered by ID |
 | Video | `GET /thumbnail?id=<id>` | JPEG preview |
-| Video | `GET /metadata?id=<id>` | Title, description and tag names |
+| Video | `GET /metadata?id=<id>` | Title, description, duration in seconds and tag names |
 | Video | `GET /related?id=<id>` | Up to three similar indexed video cards |
 | Video | `GET /videos?id=<id>` | MP4 playback with Range support |
 | Video | `POST /history?id=<id>` | Records an authenticated view |
@@ -121,6 +122,16 @@ For video ID `Ab12_cdE`, the 64 MiB media parts live in `/videos/Ab/12_cdE/`
 and the JPEG preview lives at `/videos/Ab/12_cdE.jpg`. Older uploads get a
 preview on their first thumbnail request. The media, database and model
 cache volumes survive container recreation.
+
+For existing uploads, run the duration backfill once after rebuilding the
+video service, upload service and main frontend. The backfill reads MP4
+metadata and updates only missing durations. Cards show `--:--` when the
+duration is unavailable.
+
+```sh
+docker compose up -d --build --wait backend-video backend-upload frontend-main
+docker compose exec -T backend-video python /app/backfill_durations.py
+```
 
 Fresh databases initialize their schemas automatically. To upgrade an
 existing pgvector database from before the personalized feed, run the feed
