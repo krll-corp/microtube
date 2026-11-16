@@ -9,6 +9,8 @@ x-embeddings: &embeddings
 services:
   frontend-main:
     ports: !override ["127.0.0.1::80"]
+  frontend-monitor:
+    ports: !override ["127.0.0.1::80"]
   frontend-auth:
     ports: !override ["127.0.0.1::80"]
   frontend-upload:
@@ -21,6 +23,9 @@ services:
     ports: !reset []
   backend-text:
     ports: !reset []
+  backend-indexing:
+    # Tests run an indexing pass after their uploads.
+    command: ["python", "-c", "import signal; signal.pause()"]
   backend-ai-video: *embeddings
   backend-ai-text: *embeddings
 

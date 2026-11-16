@@ -152,9 +152,13 @@ Use `docker compose config --quiet` to validate configuration and
 indexing internals, and contributor rules are in [AGENTS.md](AGENTS.md).
 
 The [ci workflow](.github/workflows/ci.yml) runs syntax checks and the test suite
-on pushes and pull requests. The suite is currently empty. Run it locally with
-Python 3.15.
+on pushes and pull requests. The Ubuntu runner builds the Compose stack and
+checks uploads, sessions, playback, discovery and monitoring. The AI routes
+return fixed test vectors, so these checks cover integration and ranking logic.
+Run the suite locally with Python 3.15 and Docker Compose 2.24.4 or later.
 
 ```sh
 python3.15 tests/general-tests.py
 ```
+
+Each run uses temporary volumes and automatically assigned local ports.
