@@ -1,0 +1,35 @@
+x-embeddings: &embeddings
+  build:
+    context: ./backend/indexing
+  command: ["python", "/fixtures/fixture_embeddings.py"]
+  ports: !reset []
+  volumes: !override
+    - ./tests/fixture_embeddings.py:/fixtures/fixture_embeddings.py:ro
+
+services:
+  frontend-main:
+    ports: !override ["127.0.0.1::80"]
+  frontend-auth:
+    ports: !override ["127.0.0.1::80"]
+  frontend-upload:
+    ports: !override ["127.0.0.1::80"]
+  backend-auth:
+    ports: !reset []
+  backend-upload:
+    ports: !reset []
+  backend-video:
+    ports: !reset []
+  backend-text:
+    ports: !reset []
+  backend-ai-video: *embeddings
+  backend-ai-text: *embeddings
+
+volumes:
+  videos-db:
+    name: !reset null
+  users-db:
+    name: !reset null
+  videos:
+    name: !reset null
+  hf-cache:
+    name: !reset null
