@@ -37,6 +37,13 @@ class AuthTests(unittest.TestCase):
         self.register()
         self.register(status=409)
 
+    def test_register_issues_bearer_token_for_new_account(self):
+        body, _ = self.register()
+        token = json.loads(body)["token"]
+        self.opener = client()
+        body, _ = self.auth("me", headers={"Authorization": f"Bearer {token}"})
+        self.assertEqual(json.loads(body), {"login_hash": self.login_hash})
+
     def test_login_and_logout(self):
         self.register()
         self.opener = client()

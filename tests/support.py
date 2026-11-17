@@ -32,6 +32,7 @@ sys.stdout.buffer.write(buffer.getvalue())
 
 def compose(*args, check=True, **kwargs):
     env = dict(os.environ, POSTGRES_USER="ci", POSTGRES_PASSWORD="microtube-ci", AUTH_COOKIE_SECURE="false")
+    env.pop("COPILOT_GITHUB_TOKEN", None)
     return subprocess.run(
         ["docker", "compose", "--env-file", ".env.example", "-p", PROJECT,
          "-f", "compose.yaml", "-f", "tests/compose.test.yaml", *args],

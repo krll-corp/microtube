@@ -38,7 +38,7 @@ jobs:
         if: matrix.suite == 'frontend'
         run: |
           python -m pip install -r tests/requirements.frontend.txt
-          python -m playwright install --with-deps chromium
+          python -m playwright install --with-deps --only-shell chromium
       - name: Run Compose integration tests
         env:
           TEST_SUITE: ${{ matrix.suite }}

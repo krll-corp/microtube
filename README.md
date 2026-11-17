@@ -151,14 +151,24 @@ Use `docker compose config --quiet` to validate configuration and
 `docker compose ps` to check service health. Service contracts, storage and
 indexing internals, and contributor rules are in [AGENTS.md](AGENTS.md).
 
-The [ci workflow](.github/workflows/ci.yml) runs syntax checks and the test suite
-on pushes and pull requests. The Ubuntu runner builds the Compose stack and
-checks uploads, sessions, playback, discovery and monitoring. The AI routes
-return fixed test vectors, so these checks cover integration and ranking logic.
-Run the suite locally with Python 3.15 and Docker Compose 2.24.4 or later.
+The [ci workflow](.github/workflows/ci.yml) runs the database, backend, and
+frontend suites in parallel on pushes and pull requests. Each job starts a
+separate Compose stack. The AI routes return fixed test vectors for ranking.
+The frontend suite uses Chromium to check registration, navigation and search.
+
+Run the tests with Python 3.15 and Docker Compose 2.24.4 or later. Install the
+browser dependencies for the frontend suite or when running all suites.
 
 ```sh
+python3.15 -m pip install -r tests/requirements.frontend.txt
+python3.15 -m playwright install --only-shell chromium
 python3.15 tests/general-tests.py
 ```
 
-Each run uses temporary volumes and automatically assigned local ports.
+Pass `db`, `backend`, or `frontend` to run one suite. Each run uses temporary volumes and automatically
+assigned local ports.
+
+The [Frontend with Copilot workflow](.github/workflows/frontend-ai.yml) runs
+manually from `main`. Copilot chooses among the displayed test controls and
+Playwright checks the result. This uses the workflow token and can consume
+the repository owner's Copilot credits.
