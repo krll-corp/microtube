@@ -1,11 +1,21 @@
+import argparse
 import json
 import unittest
-from pathlib import Path
 
 from support import PROJECT, compose
 
+# Run browser checks before the backend suite seeds enough videos to paginate.
+SUITES = {
+    "db": ("test_database",),
+    "frontend": ("test_frontend", "test_monitor"),
+    "backend": ("test_auth_upload", "test_discovery", "test_video"),
+}
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("suite", nargs="?", choices=("all", *SUITES), default="all")
+    selected = parser.parse_args().suite
+
     spec = json.loads(compose("config", "--format", "json", capture_output=True).stdout)
     volumes = spec["volumes"].values()
     if not all(v["name"].startswith(PROJECT + "_") and not v.get("external") for v in volumes):
@@ -14,7 +24,11 @@ if __name__ == "__main__":
     passed = False
     try:
         compose("up", "-d", "--build", "--wait", "--wait-timeout", "120")
-        suite = unittest.defaultTestLoader.discover(str(Path(__file__).parent))
+        if selected == "all":
+            modules = [module for group in SUITES.values() for module in group]
+        else:
+            modules = SUITES[selected]
+        suite = unittest.defaultTestLoader.loadTestsFromNames(modules)
         result = unittest.TextTestRunner(verbosity=2).run(suite)
         passed = result.testsRun > 0 and result.wasSuccessful()
     finally:
