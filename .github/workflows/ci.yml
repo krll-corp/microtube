@@ -13,8 +13,13 @@ concurrency:
 
 jobs:
   tests:
+    name: Tests (${{ matrix.suite }})
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [db, backend, frontend]
     defaults:
       run:
         shell: bash
@@ -30,4 +35,6 @@ jobs:
           python -m compileall -q backend tests
           find frontend -type f -name '*.js' -print0 | xargs -0 -r -n 1 node --check
       - name: Run Compose integration tests
-        run: python tests/general-tests.py
+        env:
+          TEST_SUITE: ${{ matrix.suite }}
+        run: exho "test"
