@@ -1,7 +1,8 @@
-name: Frontend with Copilot
+name: sandboxed ai testing
 
 on:
-  workflow_dispatch:
+  push:
+  pull_request:
 
 jobs:
   frontend:
@@ -10,7 +11,10 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-      copilot-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [registration, guest-search, watch, mobile, keyboard]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -18,12 +22,23 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.15"
-      - name: Install browser and Copilot CLI
+      - name: Install browser and Copilot SDK
         run: |
-          python -m pip install -r tests/requirements.frontend.txt
+          python -m pip install -r tests/requirements.frontend-ai.txt
           python -m playwright install --with-deps --only-shell chromium
           npm install --global @github/copilot@1.0.112
-      - name: Run frontend tests with Copilot
+      - name: Run visual UI review
         env:
-          COPILOT_GITHUB_TOKEN: ${{ github.token }}
-        run: python tests/general-tests.py frontend
+          AI_UI_BASE_URL: ${{ vars.AI_UI_BASE_URL }}
+          AI_UI_MODEL: ${{ vars.AI_UI_MODEL }}
+          AI_UI_API_KEY: ${{ secrets.AI_UI_API_KEY }}
+          AI_UI_SCENARIO: ${{ matrix.scenario }}
+        run: python tests/general-tests.py frontend-ai --case "$AI_UI_SCENARIO"
+      - name: Save screenshots and review
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ui-${{ matrix.scenario }}
+          path: output/playwright/
+          if-no-files-found: ignore
+          retention-days: 7

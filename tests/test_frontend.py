@@ -1,13 +1,10 @@
-import os
-import subprocess
 import unittest
 from hashlib import sha256
-from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from playwright.sync_api import expect, sync_playwright
 
-from support import account, address, make_clip, upload
+from support import account, address, child_environment, make_clip, upload
 
 
 class BrowserTests(unittest.TestCase):
@@ -15,9 +12,7 @@ class BrowserTests(unittest.TestCase):
     def setUpClass(cls):
         playwright = sync_playwright().start()
         cls.addClassCleanup(playwright.stop)
-        env = os.environ.copy()
-        env.pop("COPILOT_GITHUB_TOKEN", None)
-        cls.browser = playwright.chromium.launch(env=env)
+        cls.browser = playwright.chromium.launch(env=child_environment())
         cls.addClassCleanup(cls.browser.close)
 
     def setUp(self):
@@ -68,41 +63,3 @@ class BrowserTests(unittest.TestCase):
         status = self.page.locator(".catalog-status")
         expect(status).to_have_text("Sign in to search videos.")
         expect(status.get_by_role("link", name="Sign in")).to_be_visible()
-
-    def click_with_copilot(self, goal, controls):
-        actions = []
-        for key, control in controls.items():
-            expect(control).to_be_visible()
-            label = control.get_attribute("aria-label") or " ".join(control.inner_text().split())
-            actions.append(f"{key}: {label}")
-        prompt = f"{goal}\nChoose one action and reply with only its key.\n" + "\n".join(actions)
-
-        # Playwright executes the choice. Copilot gets labels and no executable tools.
-        with TemporaryDirectory(prefix="microtube-copilot-") as directory:
-            result = subprocess.run(
-                ["copilot", "-s", "--disable-builtin-mcps", "--disable-mcp-server=computer-use",
-                 "--no-custom-instructions", "--no-ask-user", "--available-tools=ask_user", "-p", prompt],
-                cwd=directory, capture_output=True, text=True, timeout=90,
-            )
-        self.assertEqual(result.returncode, 0, "Copilot CLI failed. Check Copilot access for the repository owner.")
-        key = result.stdout.strip()
-        self.assertTrue(key in controls, "Copilot must choose a listed action")
-        controls[key].click()
-
-    @unittest.skipUnless(os.getenv("COPILOT_GITHUB_TOKEN"), "Copilot check is opt-in")
-    def test_copilot_opens_the_requested_video_and_chooses_dark_mode(self):
-        opener = account()
-        clip = make_clip(1)
-        upload(opener, "Ocean waves", clip)
-        upload(opener, "Forest trail", clip)
-        self.page.goto(address("main"))
-        self.click_with_copilot("Open the video about walking among trees.", {
-            "A": self.card("Ocean waves"),
-            "B": self.card("Forest trail"),
-        })
-        expect(self.page.get_by_role("heading", name="Forest trail", level=1)).to_be_visible()
-        self.click_with_copilot("Switch to the dark theme.", {
-            "A": self.page.get_by_role("button", name="Dark theme"),
-            "B": self.page.get_by_role("button", name="Use system theme"),
-        })
-        expect(self.page.locator("html")).to_have_attribute("data-theme", "dark")

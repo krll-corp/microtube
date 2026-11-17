@@ -10,11 +10,29 @@ SUITES = {
     "frontend": ("test_frontend", "test_monitor"),
     "backend": ("test_auth_upload", "test_discovery", "test_video"),
 }
+AI_CASES = ("registration", "guest-search", "watch", "mobile", "keyboard")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("suite", nargs="?", choices=("all", *SUITES), default="all")
-    selected = parser.parse_args().suite
+    parser.add_argument("suite", nargs="?", choices=("all", *SUITES, "frontend-ai"), default="all")
+    parser.add_argument("--case", choices=AI_CASES)
+    args = parser.parse_args()
+    if args.case and args.suite != "frontend-ai":
+        parser.error("--case is only available for frontend-ai")
+    if args.suite == "frontend-ai":
+        from test_frontend_ai import provider_settings
+
+        try:
+            provider_settings()
+        except ValueError as error:
+            parser.error(str(error))
+        modules = ["test_frontend_ai"]
+        if args.case:
+            modules = [f"test_frontend_ai.VisualTests.test_{args.case.replace('-', '_')}"]
+    elif args.suite == "all":
+        modules = [module for group in SUITES.values() for module in group]
+    else:
+        modules = SUITES[args.suite]
 
     spec = json.loads(compose("config", "--format", "json", capture_output=True).stdout)
     volumes = spec["volumes"].values()
@@ -24,10 +42,6 @@ if __name__ == "__main__":
     passed = False
     try:
         compose("up", "-d", "--build", "--wait", "--wait-timeout", "120")
-        if selected == "all":
-            modules = [module for group in SUITES.values() for module in group]
-        else:
-            modules = SUITES[selected]
         suite = unittest.defaultTestLoader.loadTestsFromNames(modules)
         result = unittest.TextTestRunner(verbosity=2).run(suite)
         passed = result.testsRun > 0 and result.wasSuccessful()
