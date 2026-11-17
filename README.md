@@ -168,7 +168,17 @@ python3.15 tests/general-tests.py
 Pass `db`, `backend`, or `frontend` to run one suite. Each run uses temporary volumes and automatically
 assigned local ports.
 
-The [Frontend with Copilot workflow](.github/workflows/frontend-ai.yml) runs
-manually from `main`. Copilot chooses among the displayed test controls and
-Playwright checks the result. This uses the workflow token and can consume
-the repository owner's Copilot credits.
+The [sandboxed AI testing workflow](.github/workflows/frontend-ai.yml) runs on
+pushes to `main`. It checks registration, guest search, navigation to a video,
+mobile navigation, and keyboard use in five separate jobs.
+
+In **Settings → Secrets and variables → Actions**, set the repository
+variables `AI_UI_BASE_URL` (including the provider's API path such as
+`/v1`) and `AI_UI_MODEL`, and add the secret `AI_UI_API_KEY`. Use a model
+that accepts images via the OpenAI-compatible Chat Completions endpoint.
+Copilot SDK sends requests through that provider using the supplied key.
+
+The model selects each action from the current screenshot and a fixed list of
+controls. Playwright checks the result and captures the next shot. Copilot
+compares the first and last shots for the UX report. Each job uploads all
+screenshots and the review as artifacts. UX observations stay in the report.

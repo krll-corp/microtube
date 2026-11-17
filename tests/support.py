@@ -30,9 +30,14 @@ sys.stdout.buffer.write(buffer.getvalue())
 """
 
 
+def child_environment():
+    keys = ("AI_UI_API_KEY", "NVIDIA_API_KEY", "OPENROUTER_API_KEY",
+            "COPILOT_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
+    return {key: value for key, value in os.environ.items() if key not in keys}
+
+
 def compose(*args, check=True, **kwargs):
-    env = dict(os.environ, POSTGRES_USER="ci", POSTGRES_PASSWORD="microtube-ci", AUTH_COOKIE_SECURE="false")
-    env.pop("COPILOT_GITHUB_TOKEN", None)
+    env = dict(child_environment(), POSTGRES_USER="ci", POSTGRES_PASSWORD="microtube-ci", AUTH_COOKIE_SECURE="false")
     return subprocess.run(
         ["docker", "compose", "--env-file", ".env.example", "-p", PROJECT,
          "-f", "compose.yaml", "-f", "tests/compose.test.yaml", *args],
