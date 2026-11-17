@@ -150,35 +150,3 @@ and update on browser reload. Restart consumers after shared Python changes.
 Use `docker compose config --quiet` to validate configuration and
 `docker compose ps` to check service health. Service contracts, storage and
 indexing internals, and contributor rules are in [AGENTS.md](AGENTS.md).
-
-The [ci workflow](.github/workflows/ci.yml) runs the database, backend, and
-frontend suites in parallel on pushes and pull requests. Each job starts a
-separate Compose stack. The AI routes return fixed test vectors for ranking.
-The frontend suite uses Chromium to check registration, navigation and search.
-
-Run the tests with Python 3.15 and Docker Compose 2.24.4 or later. Install the
-browser dependencies for the frontend suite or when running all suites.
-
-```sh
-python3.15 -m pip install -r tests/requirements.frontend.txt
-python3.15 -m playwright install --only-shell chromium
-python3.15 tests/general-tests.py
-```
-
-Pass `db`, `backend`, or `frontend` to run one suite. Each run uses temporary volumes and automatically
-assigned local ports.
-
-The [sandboxed AI testing workflow](.github/workflows/frontend-ai.yml) runs on
-pushes to `main`. It checks registration, guest search, navigation to a video,
-mobile navigation, and keyboard use in five separate jobs.
-
-In **Settings → Secrets and variables → Actions**, set the repository
-variables `AI_UI_BASE_URL` (including the provider's API path such as
-`/v1`) and `AI_UI_MODEL`, and add the secret `AI_UI_API_KEY`. Use a model
-that accepts images via the OpenAI-compatible Chat Completions endpoint.
-Copilot SDK sends requests through that provider using the supplied key.
-
-The model selects each action from the current screenshot and a fixed list of
-controls. Playwright checks the result and captures the next shot. Copilot
-compares the first and last shots for the UX report. Each job uploads all
-screenshots and the review as artifacts. UX observations stay in the report.
