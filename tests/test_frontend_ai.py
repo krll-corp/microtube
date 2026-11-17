@@ -11,7 +11,8 @@ from copilot.generated.rpc import PermissionDecisionReject
 from copilot.session import ModelCapabilitiesOverride, ModelSupportsOverride
 from playwright.async_api import async_playwright, expect
 
-from support import PROJECT, ROOT, account, address, child_environment, make_clip, upload
+from fixture_videos import seed_videos
+from support import PROJECT, ROOT, address, child_environment
 
 
 def provider_settings():
@@ -31,6 +32,10 @@ def provider_settings():
 
 
 class VisualTests(unittest.IsolatedAsyncioTestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.videos = seed_videos()
+
     async def asyncSetUp(self):
         self.case = self._testMethodName.removeprefix("test_").replace("_", "-")
         self.artifacts = ROOT / "output" / "playwright" / PROJECT / self.case
@@ -86,6 +91,10 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
     async def screenshot(self):
         suffix = "initial" if not self.shots else "after"
         path = self.artifacts / f"{len(self.shots):02}-{suffix}.png"
+        await self.page.wait_for_function("""() => [...document.images].filter(image => {
+            const bounds = image.getBoundingClientRect();
+            return bounds.width && bounds.height && bounds.top < innerHeight && bounds.bottom > 0;
+        }).every(image => image.complete && image.naturalWidth > 0)""")
         await self.page.screenshot(path=path, animations="disabled", mask=[self.page.locator("#password")])
         self.shots.append(path)
 
@@ -127,6 +136,10 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
     def button(self, name):
         return self.page.get_by_role("button", name=name, exact=True)
 
+    async def open_catalog(self):
+        await self.page.goto(address("main"))
+        await expect(self.page.locator(".video-grid .video-card")).to_have_count(len(self.videos))
+
     async def test_registration(self):
         auth = address("auth")
         await self.page.goto(auth)
@@ -146,6 +159,7 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
             await expect(self.page).to_have_url(address("main") + "/")
             response = await self.context.request.get(auth + "/api/auth/me")
             self.assertEqual(response.status, 200)
+            await expect(self.page.locator(".video-grid .video-card")).to_have_count(len(self.videos))
 
         await self.step("Register the new account", [
             ("Click Register", self.button("Register").click),
@@ -153,7 +167,7 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
         ], signed_in)
 
     async def test_guest_search(self):
-        await self.page.goto(address("main"))
+        await self.open_catalog()
         search = self.page.get_by_role("searchbox", name="Search videos")
         await self.step("Enter the query forest without signing in", [
             ("Type forest in Search videos", lambda: search.fill("forest")),
@@ -168,11 +182,8 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
         await expect(self.page.locator(".catalog-status")).to_have_text("Sign in to search videos.")
 
     async def test_watch(self):
-        opener = account()
-        clip = make_clip(1)
-        upload(opener, "Ocean waves", clip)
-        video = upload(opener, "Forest trail", clip)
-        await self.page.goto(address("main"))
+        video = self.videos["Forest trail"]
+        await self.open_catalog()
 
         def card(title):
             heading = self.page.get_by_role("heading", name=title, exact=True)
@@ -181,6 +192,8 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
         async def player_loaded():
             await expect(self.page.get_by_role("heading", name="Forest trail", level=1)).to_be_visible()
             await expect(self.page.locator("video")).to_have_attribute("src", f"/api/video/videos?id={video['id']}")
+            await expect(self.page.locator("video")).to_have_js_property("videoWidth", 640)
+            await expect(self.page.locator(".related-list .video-card")).to_have_count(3)
 
         await expect(card("Forest trail")).to_be_visible()
         await self.step("Open the video about walking among trees", [
@@ -194,7 +207,7 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_mobile(self):
         await self.page.set_viewport_size({"width": 390, "height": 844})
-        await self.page.goto(address("main"))
+        await self.open_catalog()
 
         async def fits():
             self.assertTrue(await self.page.evaluate("document.documentElement.scrollWidth <= innerWidth"))
@@ -205,6 +218,7 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
 
         async def on_home():
             await expect(self.page).to_have_url(address("main") + "/")
+            await expect(self.page.locator(".video-grid .video-card")).to_have_count(len(self.videos))
             await fits()
 
         await self.step("Open the account page on a phone", [
@@ -217,7 +231,7 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
         ], on_home)
 
     async def test_keyboard(self):
-        await self.page.goto(address("main"))
+        await self.open_catalog()
         await self.page.keyboard.press("Tab")
         await expect(self.link("MicroTube — home")).to_be_focused()
         await self.page.keyboard.press("Tab")
