@@ -1,9 +1,13 @@
 import math
 import requests
+from urllib.parse import urlsplit
+from microtube_services import service_headers, service_url
 
 
 def get_embedding(url, params):
-    response = requests.get(url, params=params, timeout=600)
+    endpoint = urlsplit(url)
+    url = service_url(endpoint.hostname, f"{endpoint.scheme}://{endpoint.netloc}") + endpoint.path
+    response = requests.get(url, params=params, timeout=600, headers=service_headers())
     response.raise_for_status()
     embedding = response.json()
     if (

@@ -6,6 +6,7 @@ from contextlib import closing
 import psycopg2
 from psycopg2.extras import Json, RealDictCursor
 from microtube_embeddings import get_embedding
+from microtube_services import database_host
 
 
 def connect():
@@ -13,7 +14,7 @@ def connect():
         database="videos",
         user=os.getenv("POSTGRES_USER", "admin"),
         password=os.environ["POSTGRES_PASSWORD"],
-        host="db-videos",
+        host=database_host("videos"),
         port=5432,
     )
 

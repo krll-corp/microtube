@@ -2,7 +2,7 @@
     const app = document.getElementById("app-main");
     const searchForm = document.getElementById("search-form");
     const searchInput = document.getElementById("global-search");
-    const serviceUrl = port => `${location.protocol}//${location.hostname}:${port}/`;
+    const serviceUrl = port => window.MICROTUBE_URLS?.[port] || `${location.protocol}//${location.hostname}:${port}/`;
     document.getElementById("upload-link").href = serviceUrl(8082);
     document.getElementById("account-link").href = serviceUrl(8083);
     document.getElementById("status-link").href = serviceUrl(8081);

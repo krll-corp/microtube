@@ -9,6 +9,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Form, HTTPException, Response
 from pydantic import BaseModel, Field
 from microtube_auth import COOKIE_NAME, bearer, check_origin, user_token
+from microtube_services import database_host
 
 TOKEN_TTL = int(os.getenv("AUTH_TOKEN_TTL_SECONDS", "3600"))
 if TOKEN_TTL <= 0:
@@ -26,7 +27,7 @@ class Credentials(BaseModel):
 
 def connect():
     return psycopg2.connect(
-        database="users", host="db-users",
+        database="users", host=database_host("users"),
         user=os.getenv("POSTGRES_USER", "admin"),
         password=os.environ["POSTGRES_PASSWORD"], connect_timeout=5,
     )

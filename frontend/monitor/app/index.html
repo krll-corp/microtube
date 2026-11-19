@@ -76,8 +76,8 @@
 <script>
 (() => {
     document.querySelectorAll("[data-port]").forEach(link => {
-        const target = new URL("/", location.href);
-        target.port = link.dataset.port;
+        const target = new URL(window.MICROTUBE_URLS?.[link.dataset.port] || "/", location.href);
+        if (!window.MICROTUBE_URLS) target.port = link.dataset.port;
         link.href = target.href;
     });
 

@@ -88,6 +88,7 @@
     let uploadKey = null;
 
     function serviceURL(port) {
+        if (window.MICROTUBE_URLS) return new URL(window.MICROTUBE_URLS[port], location.href);
         const url = new URL("/", location.href);
         url.port = port;
         return url;

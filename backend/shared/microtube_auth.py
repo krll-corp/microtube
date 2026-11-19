@@ -4,6 +4,7 @@ from urllib.request import Request as URLRequest, urlopen
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPBearer
+from microtube_services import service_headers, service_url
 
 bearer = HTTPBearer(auto_error=False)
 COOKIE_NAME = "microtube_token"
@@ -32,8 +33,8 @@ def require_user(token=Depends(user_token)):
     if token is None:
         raise HTTPException(401, "not logged in", headers={"WWW-Authenticate": "Bearer"})
     request = URLRequest(
-        "http://backend-auth:3034/user",
-        headers={"Authorization": f"Bearer {token}"},
+        service_url("backend-auth", "http://backend-auth:3034") + "/user",
+        headers={"Authorization": f"Bearer {token}", **service_headers()},
     )
     try:
         with urlopen(request, timeout=3) as response:
