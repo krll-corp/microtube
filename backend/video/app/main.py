@@ -14,7 +14,7 @@ from microtube_auth import require_user, user_token
 from microtube_storage import find_video, open_video
 from feed import pool_page, random_page, refresh_pool
 from thumbnail import read_thumbnail
-from microtube_services import database_host
+from microtube_services import database_options
 
 CACHE_LIMIT = max(0, int(os.getenv("VIDEO_CACHE_MB", "64"))) * 1024 * 1024
 CHUNK_SIZE = 1024 * 1024
@@ -28,7 +28,7 @@ def connect():
         database="videos",
         user=os.getenv("POSTGRES_USER", "admin"),
         password=os.environ["POSTGRES_PASSWORD"],
-        host=database_host("videos"),
+        **database_options("videos"),
         connect_timeout=5,
     )
 

@@ -1,5 +1,6 @@
 import os
 from functools import cache
+from tempfile import NamedTemporaryFile
 
 
 @cache
@@ -16,12 +17,21 @@ def service_headers():
     return {"X-Microtube-Service": token} if token else {}
 
 
-def database_host(name):
+@cache
+def certificate_file(certificate):
+    with NamedTemporaryFile(mode="w", suffix=".crt", delete=False) as file:
+        file.write(certificate)
+        return file.name
+
+
+def database_options(name):
     app = os.getenv("MICROTUBE_MODAL_APP")
     if not app:
-        return "db-" + name
+        return {"host": "db-" + name}
     import modal
-    return modal.Cls.from_name(app, "Database")(name=name).ready.remote()
+    options = modal.Cls.from_name(app, "Database")(name=name).ready.remote()
+    options["sslrootcert"] = certificate_file(options.pop("certificate"))
+    return {**options, "sslmode": "verify-full"}
 
 
 def commit_media():

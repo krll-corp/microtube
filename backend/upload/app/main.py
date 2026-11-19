@@ -11,7 +11,7 @@ from microtube_auth import require_user
 from microtube_media import encode_thumbnail, first_video_frame, video_duration_seconds
 from microtube_storage import find_video, save_thumbnail, save_video, thumbnail_path, video_path
 from microtube_tags import get_tag_ids
-from microtube_services import commit_media, database_host
+from microtube_services import commit_media, database_options
 
 app = FastAPI()
 
@@ -120,7 +120,7 @@ def run(
         commit_media()
         with closing(psycopg2.connect(
             database="videos", user=os.getenv("POSTGRES_USER", "admin"),
-            password=os.environ["POSTGRES_PASSWORD"], host=database_host("videos"), port=5432,
+            password=os.environ["POSTGRES_PASSWORD"], **database_options("videos"),
             connect_timeout=5,
         )) as connection:
             with connection:

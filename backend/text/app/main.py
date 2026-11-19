@@ -8,7 +8,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from psycopg2.extras import RealDictCursor
 from microtube_auth import require_user
 from microtube_embeddings import get_embedding
-from microtube_services import database_host
+from microtube_services import database_options
 
 app = FastAPI()
 SEARCH_SQL = Path(__file__).with_name("search.sql").read_text()
@@ -18,8 +18,7 @@ def connect():
         database="videos",
         user=os.getenv("POSTGRES_USER", "admin"),
         password=os.environ["POSTGRES_PASSWORD"],
-        host=database_host("videos"),
-        port=5432,
+        **database_options("videos"),
         connect_timeout=5,
     )
 
