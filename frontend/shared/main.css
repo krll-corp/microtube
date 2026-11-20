@@ -121,6 +121,22 @@
     height: 100%;
 }
 
+.playback-quality {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 14px;
+}
+
+.playback-quality select {
+    padding: 6px 12px;
+    font: inherit;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0;
+}
+
 .video-detail h1 {
     margin: 24px 0 16px;
     font-size: clamp(32px, 3.8vw, 58px);

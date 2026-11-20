@@ -1,10 +1,11 @@
 import unittest
 from hashlib import sha256
+from time import monotonic, sleep
 from uuid import uuid4
 
 from playwright.sync_api import expect, sync_playwright
 
-from support import account, account_credentials, address, child_environment, make_clip, upload
+from support import account, account_credentials, address, child_environment, compose, make_clip, upload
 
 
 class BrowserTests(unittest.TestCase):
@@ -24,6 +25,17 @@ class BrowserTests(unittest.TestCase):
     def card(self, title):
         heading = self.page.get_by_role("heading", name=title, exact=True)
         return self.page.locator("a.video-card").filter(has=heading)
+
+    def playback_details(self, video_id):
+        home = address("main")
+        deadline = monotonic() + 30
+        while True:
+            metadata = self.context.request.get(f"{home}/api/video/metadata?id={video_id}").json()
+            if "playback" in metadata or monotonic() >= deadline:
+                break
+            sleep(0.2)
+        self.assertIn("playback", metadata)
+        return metadata["playback"]
 
     def test_registration_form_creates_account_and_opens_home(self):
         auth = address("auth")
@@ -87,6 +99,57 @@ class BrowserTests(unittest.TestCase):
                 else:
                     expect(transcode).to_be_hidden()
                 expect(self.page.get_by_role("link", name="Watch video")).to_be_visible()
+
+    def test_hd_upload_provides_selectable_playback(self):
+        clip = compose(
+            "exec", "-T", "backend-upload", "ffmpeg", "-loglevel", "error",
+            "-f", "lavfi", "-i", "color=s=1920x1080:r=12", "-f", "lavfi", "-i", "sine",
+            "-t", "3", "-c:v", "libx264", "-threads:v", "2", "-c:a", "aac",
+            "-movflags", "+empty_moov+frag_keyframe", "-f", "mp4", "pipe:1", capture_output=True,
+        ).stdout
+        auth = address("auth")
+        registered = self.context.request.post(auth + "/api/auth/register", form=account_credentials(),
+                                               headers={"Origin": auth})
+        self.assertEqual(registered.status, 201)
+        self.page.goto(address("upload"))
+        self.page.locator("#video-file").set_input_files({"name": "hd.mp4", "mimeType": "video/mp4", "buffer": clip})
+        self.page.get_by_label("Video title").fill("HD playback fixture")
+        with self.page.expect_response("**/api/upload/upload") as uploaded:
+            self.page.get_by_role("button", name="Upload video").click()
+        self.assertEqual(uploaded.value.status, 200)
+        video_id = uploaded.value.json()["id"]
+        home = address("main")
+        playback = self.playback_details(video_id)
+        self.assertEqual([variant["height"] for variant in playback["variants"]], [720, 1080])
+        manifest = self.context.request.get(home + playback["master"])
+        self.assertEqual(manifest.status, 200)
+        self.assertIn("application/vnd.apple.mpegurl", manifest.headers["content-type"])
+
+        self.page.goto(f"{home}/?video={video_id}")
+        quality = self.page.get_by_role("combobox", name="Quality")
+        expect(quality.locator("option")).to_have_text(["Auto", "720p", "1080p"])
+        quality.select_option(label="1080p")
+        self.page.locator("video").evaluate("video => { video.muted = true; video.play().catch(() => {}); }")
+        self.page.wait_for_function(
+            "document.querySelector('video').videoHeight === 1080 && document.querySelector('video').currentTime > 0",
+        )
+
+    def test_single_hls_variant_has_an_init_file(self):
+        clip = compose(
+            "exec", "-T", "backend-upload", "ffmpeg", "-loglevel", "error",
+            "-f", "lavfi", "-i", "color=s=1280x720:r=8", "-t", "1",
+            "-c:v", "libx264", "-threads:v", "2", "-movflags", "+empty_moov+frag_keyframe",
+            "-f", "mp4", "pipe:1", capture_output=True,
+        ).stdout
+        video_id = upload(account(), "720p playlist fixture", clip)["id"]
+        variant, = self.playback_details(video_id)["variants"]
+        playlist = address("main") + variant["url"]
+        response = self.context.request.get(playlist)
+        self.assertEqual(response.status, 200)
+        self.assertIn('#EXT-X-MAP:URI="720-init.mp4"', response.text())
+        init = self.context.request.get(playlist.rsplit("/", 1)[0] + "/720-init.mp4")
+        self.assertEqual(init.status, 200)
+        self.assertEqual(init.body()[4:8], b"ftyp")
 
     def test_catalog_card_opens_watch_page(self):
         title = "Browser fixture"

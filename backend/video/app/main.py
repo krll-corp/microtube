@@ -11,7 +11,7 @@ import psycopg2
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from microtube_auth import require_user, user_token
-from microtube_storage import find_video, open_video
+from microtube_storage import PLAYBACK_HEIGHTS, find_video, open_video, playback_path
 from feed import pool_page, random_page, refresh_pool
 from thumbnail import read_thumbnail
 from microtube_services import database_options
@@ -154,10 +154,19 @@ def metadata(request: Request, id: str = Query(pattern=r"^[A-Za-z0-9_-]{8}$")):
     if row is None:
         raise HTTPException(404, "Video not found", headers={"Cache-Control": "no-store"})
     title, description, duration_seconds, tags = row
-    response = JSONResponse({
+    details = {
         "id": id, "title": title, "description": description,
         "duration_seconds": duration_seconds, "tags": tags,
-    })
+    }
+    path = playback_path(id)
+    if (path / "master.m3u8").is_file():
+        url = f"/hls/{id[:2]}/{id[2:]}"
+        details["playback"] = {
+            "master": f"{url}/master.m3u8",
+            "variants": [{"height": height, "url": f"{url}/{height}.m3u8"}
+                         for height in PLAYBACK_HEIGHTS if (path / f"{height}.m3u8").is_file()],
+        }
+    response = JSONResponse(details)
     etag = f'"{sha256(response.body).hexdigest()}"'
     headers = {"ETag": etag, "Cache-Control": "public, max-age=60, must-revalidate"}
     if any(value.strip() in (etag, "W/" + etag, "*")

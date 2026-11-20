@@ -3,6 +3,7 @@ import importlib.util
 import json
 import logging
 import os
+import re
 from http.cookiejar import CookieJar, DefaultCookiePolicy
 from pathlib import Path
 import secrets
@@ -28,6 +29,8 @@ image = (
     .add_local_dir(ROOT / "frontend", "/app/frontend", copy=True)
     .add_local_dir(ROOT / "assets", "/app/assets", copy=True)
 )
+frontend_image = image.run_commands("python /app/frontend/main/build-player-assets.py /app/player-assets")
+upload_worker_image = runtime.apt_install("ffmpeg").add_local_dir(ROOT / "backend", "/app/backend", copy=True)
 
 def cache_model():
     from huggingface_hub import snapshot_download
@@ -47,6 +50,8 @@ pg_image = modal.Image.from_registry("pgvector/pgvector:pg16", add_python="3.13"
 )
 cpu = dict(image=image, secrets=[credentials], cpu=0.125, memory=256,
            min_containers=0, max_containers=4, scaledown_window=600, timeout=3600)
+upload_worker = {**cpu, "image": upload_worker_image, "cpu": 2, "memory": 4096,
+                 "max_containers": 1, "timeout": 86400, "scaledown_window": 60}
 gpu = dict(image=gpu_image, secrets=[credentials], gpu=os.getenv("MICROTUBE_GPU", "T4"),
            cpu=0.25, memory=4096, min_containers=0, max_containers=2, timeout=600, startup_timeout=1200,
            scaledown_window=60, volumes={"/videos": media.with_mount_options(read_only=True),
@@ -153,6 +158,7 @@ def serve(name):
     if name == "upload":
         module.app.state.submit_upload = backend_upload_process.spawn
         module.app.state.upload_failed = upload_failed
+        module.app.state.submit_playback = backend_upload_playback.spawn
 
     @module.app.middleware("http")
     async def internal_request(request: Request, call_next):
@@ -198,15 +204,20 @@ def backend_upload():
     return serve("upload")
 
 
-@app.function(**{**cpu, "image": image.apt_install("ffmpeg"), "cpu": 2, "memory": 4096,
-                 "max_containers": 1, "timeout": 86400, "scaledown_window": 60},
-              name="backend-upload-process", volumes={"/videos": media}, retries=3)
+@app.function(**upload_worker, name="backend-upload-process", volumes={"/videos": media}, retries=3)
 def backend_upload_process(owner_hash, key):
     def published():
         Database(name="videos").flush.remote()
         backend_indexing.spawn()
 
-    load_service("upload").process_upload(owner_hash, key, after_publish=published)
+    video_id = load_service("upload").process_upload(owner_hash, key, after_publish=published)
+    if video_id:
+        backend_upload_playback.spawn(video_id)
+
+
+@app.function(**upload_worker, name="backend-upload-playback", volumes={"/videos": media}, retries=3)
+def backend_upload_playback(video_id):
+    load_service("upload").prepare_playback(video_id)
 
 
 @app.function(**cpu, name="backend-text")
@@ -245,7 +256,8 @@ def backend_indexing():
         raise RuntimeError("Some videos could not be indexed")
 
 
-@app.function(**cpu, name="frontend")
+@app.function(**{**cpu, "image": frontend_image}, name="frontend",
+              volumes={"/videos": media.with_mount_options(read_only=True)})
 @modal.asgi_app()
 def frontend():
     import httpx
@@ -254,6 +266,7 @@ def frontend():
     from fastapi.staticfiles import StaticFiles
     from starlette.background import BackgroundTask
     from microtube_services import service_headers, service_url
+    from microtube_storage import playback_path
 
     web = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     # Forward cookies from the current browser request only.
@@ -311,6 +324,21 @@ def frontend():
 
     web.mount("/shared", StaticFiles(directory="/app/frontend/shared"))
     web.mount("/assets", StaticFiles(directory="/app/assets"))
+    web.mount("/vendor", StaticFiles(directory="/app/player-assets"))
+
+    @web.api_route("/hls/{prefix}/{suffix}/{name}", methods=["GET", "HEAD"])
+    async def hls(prefix: str, suffix: str, name: str):
+        types = {".m3u8": "application/vnd.apple.mpegurl", ".mp4": "video/mp4", ".m4s": "video/iso.segment"}
+        if len(prefix) != 2 or not re.fullmatch(r"[A-Za-z0-9_-]{8}", prefix + suffix):
+            raise HTTPException(404)
+        if not re.fullmatch(r"(?:master|720|1080|2160)\.m3u8|(?:720|1080|2160)-(?:init\.mp4|[0-9]+\.m4s)", name):
+            raise HTTPException(404)
+        path = playback_path(prefix + suffix) / name
+        if not path.is_file():
+            await media.reload.aio()
+        if not path.is_file():
+            raise HTTPException(404)
+        return FileResponse(path, media_type=types[path.suffix], headers={"Cache-Control": "public, max-age=3600"})
 
     @web.get("/app.js")
     def script():

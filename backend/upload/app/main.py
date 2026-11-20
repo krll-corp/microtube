@@ -21,6 +21,7 @@ from microtube_media import encode_thumbnail, first_video_frame, video_duration_
 from microtube_storage import VIDEO_STORAGE_DIR, find_video, save_thumbnail, save_video, thumbnail_path, video_path
 from microtube_tags import get_tag_ids
 from microtube_services import commit_media, database_options, reload_media
+from playback import prepare_playback
 from transcode import inspect_upload, transcode_video
 
 app = FastAPI()
@@ -173,6 +174,18 @@ async def upload_part(
     return await run_in_threadpool(store_part, owner_hash, idempotency_key, kind, offset, body)
 
 
+def queue_playback(background, result):
+    submit = getattr(app.state, "submit_playback", None)
+    if submit is None:
+        background.add_task(prepare_playback, result["id"])
+    else:
+        try:
+            submit(result["id"])
+        except Exception:
+            logging.exception("Could not queue playback for %s", result["id"])
+    return result
+
+
 @app.post("/upload")
 def run(
     background: BackgroundTasks,
@@ -190,8 +203,9 @@ def run(
     if file is not None:
         media = inspect_upload(file.file)
         if media["mode"] != "transcode":
-            return store_upload(file, thumbnail, owner_hash, title, description, tags, idempotency_key,
-                                mode=media["mode"])
+            result = store_upload(file, thumbnail, owner_hash, title, description, tags, idempotency_key,
+                                  mode=media["mode"])
+            return queue_playback(background, result)
         filename = file.filename or "video"
         idempotency_key = idempotency_key or secrets.token_hex(16)
     elif not idempotency_key or not filename or size is None:
@@ -203,7 +217,7 @@ def run(
         if previous is not None:
             if not (directory / "job.json").exists():
                 clear_job(directory)
-            return upload_response(*previous)
+            return queue_playback(background, upload_response(*previous))
         job = read_job(directory)
         if job is None:
             video = directory / "video"
@@ -229,7 +243,7 @@ def run(
             if job["mode"] == "direct":
                 result = publish_job(directory, owner_hash, idempotency_key, job)
                 clear_job(directory)
-                return result
+                return queue_playback(background, result)
         elif "error" in job:
             del job["error"]
             job["progress"] = 0 if job["duration"] else None
@@ -321,6 +335,7 @@ def process_upload(owner_hash, key, after_publish=None):
         with staged_upload(owner_hash, key) as (directory, cursor):
             previous = previous_upload(cursor, owner_hash, key, lock=False)
             job = read_job(directory)
+        result = upload_response(*previous) if previous else None
         if previous is None:
             if job is None or "error" in job:
                 return
@@ -335,9 +350,9 @@ def process_upload(owner_hash, key, after_publish=None):
                     with TemporaryDirectory() as work:
                         output = Path(work) / "transcoded.mp4"
                         transcode_video(directory / "video", output, job, update)
-                        publish_job(directory, owner_hash, key, job, output)
+                        result = publish_job(directory, owner_hash, key, job, output)
                 else:
-                    publish_job(directory, owner_hash, key, job)
+                    result = publish_job(directory, owner_hash, key, job)
             except HTTPException as error:
                 job["error"] = [error.status_code, error.detail]
                 write_job(directory, job)
@@ -351,6 +366,10 @@ def process_upload(owner_hash, key, after_publish=None):
             after_publish()
         with staged_upload(owner_hash, key):
             clear_job(directory)
+
+    if after_publish:
+        return result["id"]
+    prepare_playback(result["id"])
 
 
 def store_upload(file, thumbnail, owner_hash, title, description, tags, idempotency_key, *, mode):

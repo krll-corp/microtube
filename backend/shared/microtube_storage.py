@@ -9,6 +9,8 @@ from tempfile import mkstemp
 
 VIDEO_STORAGE_DIR = Path(os.getenv("VIDEO_STORAGE_DIR", "/videos")).resolve()
 CHUNK_SIZE = 64 * 1024 * 1024
+PLAYBACK_DIR = VIDEO_STORAGE_DIR / ".hls"
+PLAYBACK_HEIGHTS = (720, 1080, 2160)
 
 
 def video_path(id):
@@ -29,6 +31,11 @@ def find_video(id):
     if legacy.is_relative_to(VIDEO_STORAGE_DIR) and legacy.is_file():
         return legacy
     return None
+
+
+def playback_path(id):
+    video_path(id)
+    return PLAYBACK_DIR / id[:2] / id[2:]
 
 
 def thumbnail_path(id):

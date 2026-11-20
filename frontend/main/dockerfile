@@ -1,6 +1,12 @@
+from python:3.13-alpine as player
+
+copy build-player-assets.py /build-player-assets.py
+run ["python", "/build-player-assets.py", "/out"]
+
 from nginx:alpine
 
 copy ./app /usr/share/nginx/html
+copy --from=player /out /usr/share/nginx/html/vendor
 copy ./nginx.conf /etc/nginx/conf.d/default.conf
 
 expose 80

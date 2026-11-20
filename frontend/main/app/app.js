@@ -12,6 +12,8 @@
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
     })[char]);
     let navigation = 0;
+    let releasePlayer;
+    let hlsLibrary;
     let catalogObserver;
 
     window.addEventListener("pageshow", async () => {
@@ -127,6 +129,87 @@
         loadNext();
     }
 
+    function loadHls() {
+        if (!hlsLibrary) {
+            hlsLibrary = new Promise(resolve => {
+                const script = document.createElement("script");
+                script.src = "/vendor/hls.js";
+                script.onload = () => resolve(window.Hls);
+                script.onerror = () => {
+                    hlsLibrary = null;
+                    script.remove();
+                    resolve(null);
+                };
+                document.head.append(script);
+            });
+        }
+        return hlsLibrary;
+    }
+
+    async function playStream(player, playback, original, version, rememberPlayback) {
+        const Hls = await loadHls();
+        if (version !== navigation) return;
+        const field = document.createElement("label");
+        field.className = "playback-quality";
+        field.append("Quality");
+        const quality = document.createElement("select");
+        quality.add(new Option("Auto", "-1"));
+        const addQuality = (height, index) => quality.add(new Option(height === 2160 ? "4K" : height + "p", index));
+        field.append(quality);
+
+        const switchSource = url => {
+            const position = player.currentTime;
+            const resume = !player.paused;
+            rememberPlayback();
+            releasePlayer?.();
+            releasePlayer = null;
+            player.onloadedmetadata = () => {
+                player.onloadedmetadata = null;
+                player.currentTime = position;
+                if (resume) player.play().catch(() => {});
+            };
+            player.src = url;
+        };
+
+        if (Hls?.isSupported()) {
+            const hls = new Hls({
+                startLevel: 0, capLevelToPlayerSize: true, lowLatencyMode: false,
+                maxBufferLength: 20, maxMaxBufferLength: 40, backBufferLength: 15,
+            });
+            releasePlayer = () => hls.destroy();
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                hls.levels.forEach((level, index) => addQuality(Math.min(level.width, level.height), index));
+                player.parentElement.after(field);
+            });
+            hls.on(Hls.Events.ERROR, (_event, error) => {
+                if (!error.fatal) return;
+                field.remove();
+                switchSource(original);
+            });
+            quality.addEventListener("change", () => {
+                const level = Number(quality.value);
+                if (level === -1 || player.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || hls.currentLevel === level) {
+                    hls.loadLevel = level;
+                } else {
+                    hls.currentLevel = level;
+                }
+            });
+            hls.loadSource(playback.master);
+            hls.attachMedia(player);
+        } else if (player.canPlayType("application/vnd.apple.mpegurl")) {
+            playback.variants.forEach((variant, index) => addQuality(variant.height, index));
+            player.parentElement.after(field);
+            player.src = playback.master;
+            quality.addEventListener("change", () => switchSource(playback.variants[quality.value]?.url || playback.master));
+            player.addEventListener("error", () => {
+                field.remove();
+                switchSource(original);
+            }, {once: true});
+        } else {
+            player.src = original;
+        }
+    }
+
     async function renderWatch(params, version) {
         const id = params.get("video");
         if (!/^[A-Za-z0-9_-]{8}$/.test(id || "")) {
@@ -172,14 +255,26 @@
         </aside></div>`;
         const player = app.querySelector("video");
         const videoError = app.querySelector("#video-error");
-        player.src = `/api/video/videos?id=${encodeURIComponent(id)}`;
         player.addEventListener("error", () => { videoError.hidden = false; });
+        player.addEventListener("loadeddata", () => { videoError.hidden = true; });
+        const original = `/api/video/videos?id=${encodeURIComponent(id)}`;
+        const earlierRanges = [];
+        const playedRanges = () => {
+            const played = player.played;
+            return Array.from({length: played.length}, (_, index) => [played.start(index), played.end(index)]);
+        };
+        if (details.playback) playStream(player, details.playback, original, version,
+                                        () => earlierRanges.push(...playedRanges()));
+        else player.src = original;
         let nextReportAt = 0;
         player.addEventListener("timeupdate", async () => {
             if (Date.now() < nextReportAt || !Number.isFinite(player.duration) || player.duration <= 0) return;
-            const played = player.played;
             let seconds = 0;
-            for (let i = 0; i < played.length; i++) seconds += played.end(i) - played.start(i);
+            let end = 0;
+            for (const [start, stop] of earlierRanges.concat(playedRanges()).sort((a, b) => a[0] - b[0])) {
+                seconds += Math.max(0, stop - Math.max(start, end));
+                end = Math.max(end, stop);
+            }
             if (seconds < Math.min(30, player.duration / 2)) return;
             nextReportAt = Infinity;
             try {
@@ -206,6 +301,8 @@
     }
 
     function route() {
+        releasePlayer?.();
+        releasePlayer = null;
         catalogObserver?.disconnect();
         const version = ++navigation;
         const params = new URLSearchParams(location.search);
