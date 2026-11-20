@@ -36,18 +36,21 @@ def check_modal():
     return url.rstrip("/")
 
 
-def get(url, content_type):
+def get(url, content_type, *, final_url=None):
     request = Request(url, headers={"Cache-Control": "no-cache"})
     with urlopen(request, timeout=20) as response:
         if response.status != 200 or response.headers.get_content_type() != content_type:
             raise RuntimeError(f"Unexpected response from {url}")
+        if final_url and response.geturl() != final_url:
+            raise RuntimeError(f"Expected {url} to redirect to {final_url}")
         return response.read()
 
 
 def check_http(url):
-    for path in ("/", "/auth/", "/upload/", "/monitor/"):
+    for path in ("/", "/auth/", "/monitor/"):
         if b"microtube" not in get(url + path, "text/html").lower():
             raise RuntimeError(f"Unexpected HTML at {path}")
+    get(url + "/upload/", "text/html", final_url=url + "/auth/")
     get(url + "/shared/base.css", "text/css")
     script = get(url + "/app.js", "text/javascript")
     if sha256(script).digest() != sha256((ROOT / "frontend/main/app/app.js").read_bytes()).digest():

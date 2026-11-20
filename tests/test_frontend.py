@@ -44,6 +44,21 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(session.status, 200)
         expected = sha256(sha256(username.encode()).digest()).hexdigest()
         self.assertEqual(session.json(), {"login_hash": expected})
+        expect(self.page.get_by_role("link", name="Upload", exact=True)).to_be_visible()
+        self.page.goto(address("upload"))
+        expect(self.page.locator("#upload-form")).to_be_visible()
+
+    def test_guest_is_redirected_from_upload_page(self):
+        home = address("main")
+        with self.page.expect_response(home + "/api/auth/me") as session:
+            self.page.goto(home)
+        self.assertEqual(session.value.status, 401)
+        expect(self.page.locator("#upload-link")).to_be_hidden()
+        for path in ("/", "/index.html"):
+            with self.subTest(path=path):
+                response = self.context.request.get(address("upload") + path, max_redirects=0)
+                self.assertEqual(response.status, 302)
+                self.assertEqual(response.headers["location"], "http://127.0.0.1:8083/")
 
     def test_catalog_card_opens_watch_page(self):
         title = "Browser fixture"

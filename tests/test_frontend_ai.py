@@ -159,6 +159,7 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
             await expect(self.page).to_have_url(address("main") + "/")
             response = await self.context.request.get(auth + "/api/auth/me")
             self.assertEqual(response.status, 200)
+            await expect(self.link("Upload")).to_be_visible()
             await expect(self.page.locator(".video-grid .video-card")).to_have_count(len(self.videos))
 
         await self.step("Register the new account", [
@@ -222,7 +223,7 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
             await fits()
 
         await self.step("Open the account page on a phone", [
-            ("Tap Upload", self.link("Upload").click),
+            ("Tap Home", self.link("Home").click),
             ("Tap Account", self.link("Account").click),
         ], on_account)
         await self.step("Return to the mobile catalog", [

@@ -2,8 +2,9 @@
     const app = document.getElementById("app-main");
     const searchForm = document.getElementById("search-form");
     const searchInput = document.getElementById("global-search");
+    const uploadLink = document.getElementById("upload-link");
     const serviceUrl = port => window.MICROTUBE_URLS?.[port] || `${location.protocol}//${location.hostname}:${port}/`;
-    document.getElementById("upload-link").href = serviceUrl(8082);
+    uploadLink.href = serviceUrl(8082);
     document.getElementById("account-link").href = serviceUrl(8083);
     document.getElementById("status-link").href = serviceUrl(8081);
 
@@ -12,6 +13,14 @@
     })[char]);
     let navigation = 0;
     let catalogObserver;
+
+    window.addEventListener("pageshow", async () => {
+        uploadLink.hidden = true;
+        try {
+            const response = await fetch("/api/auth/me", {cache: "no-store"});
+            if (response.ok) uploadLink.hidden = !(await response.json()).login_hash;
+        } catch {}
+    });
 
     function formatDuration(seconds) {
         if (!Number.isFinite(seconds) || seconds <= 0) return null;

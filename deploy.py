@@ -3,6 +3,7 @@ import importlib.util
 import json
 import logging
 import os
+from http.cookiejar import CookieJar, DefaultCookiePolicy
 from pathlib import Path
 import secrets
 import subprocess
@@ -220,29 +221,34 @@ def backend_indexing():
 def frontend():
     import httpx
     from fastapi import FastAPI, HTTPException, Request
-    from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+    from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
     from fastapi.staticfiles import StaticFiles
     from starlette.background import BackgroundTask
     from microtube_services import service_headers, service_url
 
     web = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-    client = httpx.AsyncClient(timeout=1200, follow_redirects=True)
+    # Forward cookies from the current browser request only.
+    client = httpx.AsyncClient(timeout=1200, follow_redirects=True,
+                               cookies=CookieJar(policy=DefaultCookiePolicy(allowed_domains=())))
     routes = {"8080": "/", "8081": "/monitor/", "8082": "/upload/", "8083": "/auth/"}
     headers_to_skip = {b"connection", b"transfer-encoding", b"keep-alive", b"upgrade"}
 
-    async def proxy(request, service, path):
+    async def upstream(request, service, path):
         target = await asyncio.to_thread(service_url, service, "") + path
         headers = {key: value for key, value in request.headers.items() if not key.lower().startswith("modal-")}
         headers.update(service_headers())
         headers.pop("connection", None)
         headers["X-Microtube-Host"] = headers.pop("host")
         try:
-            response = await client.send(client.build_request(
+            return await client.send(client.build_request(
                 request.method, target, params=request.query_params,
                 headers=headers, content=None if request.method in ("GET", "HEAD") else request.stream(),
             ), stream=True)
         except httpx.HTTPError as error:
             raise HTTPException(502, "Service unavailable") from error
+
+    async def proxy(request, service, path):
+        response = await upstream(request, service, path)
         result = StreamingResponse(response.aiter_raw(), status_code=response.status_code,
                                    background=BackgroundTask(response.aclose))
         result.raw_headers = [(key, value) for key, value in response.headers.raw
@@ -283,12 +289,21 @@ def frontend():
 
     @web.get("/")
     @web.get("/{page}/")
-    def page(page: str = "main"):
+    async def page(request: Request, page: str = "main"):
         if page not in ("main", "auth", "upload", "monitor"):
             raise HTTPException(404)
+        headers = {"Cache-Control": "no-cache"}
+        if page == "upload":
+            session = await upstream(request, "backend-auth", "/auth/me")
+            await session.aclose()
+            headers["Cache-Control"] = "private, no-store"
+            if session.status_code == 401:
+                return RedirectResponse(routes["8083"], status_code=302, headers=headers)
+            if session.status_code != 200:
+                raise HTTPException(503, "Authentication service unavailable")
         html = (Path("/app/frontend") / page / "app/index.html").read_text()
         config = "<script>window.MICROTUBE_URLS=" + json.dumps(routes) + ";</script>"
-        return HTMLResponse(html.replace("<head>", "<head>" + config, 1), headers={"Cache-Control": "no-cache"})
+        return HTMLResponse(html.replace("<head>", "<head>" + config, 1), headers=headers)
 
     return web
 
