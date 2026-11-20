@@ -15,6 +15,11 @@ TOKEN_TTL = int(os.getenv("AUTH_TOKEN_TTL_SECONDS", "3600"))
 if TOKEN_TTL <= 0:
     raise ValueError("AUTH_TOKEN_TTL_SECONDS must be positive")
 tokens = {}
+session_time = time.monotonic
+if os.getenv("MICROTUBE_MODAL_APP"):
+    import modal
+    tokens = modal.Dict.from_name("microtube-sessions", create_if_missing=True)
+    session_time = time.time
 token_lock = Lock()
 app = FastAPI(dependencies=[Depends(check_origin)])
 internal = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
@@ -38,18 +43,19 @@ def session_user(token):
         return None
     with token_lock:
         session = tokens.get(token)
-        if session is not None and session["expires_at"] > time.monotonic():
+        if session is not None and session["expires_at"] > session_time():
             return session["login_hash"]
         tokens.pop(token, None)
     return None
 
 
 def start_session(login_hash, response):
-    token, now = secrets.token_urlsafe(32), time.monotonic()
+    token, now = secrets.token_urlsafe(32), session_time()
     with token_lock:
-        for key in list(tokens):
-            if tokens[key]["expires_at"] <= now:
-                del tokens[key]
+        for key in list(tokens.keys()):
+            session = tokens.get(key)
+            if session is not None and session["expires_at"] <= now:
+                tokens.pop(key, None)
         tokens[token] = {"login_hash": login_hash, "expires_at": now + TOKEN_TTL}
     response.set_cookie(
         COOKIE_NAME, token, max_age=TOKEN_TTL, httponly=True, samesite="strict",
