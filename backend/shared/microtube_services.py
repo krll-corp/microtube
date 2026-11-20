@@ -38,3 +38,9 @@ def commit_media():
     if os.getenv("MICROTUBE_MODAL_APP"):
         import modal
         modal.Volume.from_name("microtube-videos", version=2).commit()
+
+
+def reload_media():
+    if os.getenv("MICROTUBE_MODAL_APP"):
+        import modal
+        modal.Volume.from_name("microtube-videos", version=2).reload()

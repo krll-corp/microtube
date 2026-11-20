@@ -147,12 +147,13 @@ def serve(name):
         if host:
             request.scope["headers"] = [(key, value) for key, value in request.scope["headers"] if key != b"host"]
             request.scope["headers"].append((b"host", host.encode("ascii")))
-        if name in ("upload", "video", "ai/video"):
+        upload_part = name == "upload" and request.url.path == "/part"
+        if name in ("upload", "video", "ai/video") and not upload_part:
             await media.reload.aio()
         response = await call_next(request)
         if name == "video":
             await media.commit.aio()
-        if response.status_code < 400 and (request.method == "POST" or request.url.path == "/feed"):
+        if response.status_code < 400 and not upload_part and (request.method == "POST" or request.url.path == "/feed"):
             database = "users" if name == "auth" else "videos"
             await Database(name=database).flush.remote.aio()
             if name == "upload":

@@ -258,7 +258,7 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
                 await resume.wait()
                 await route.continue_()
 
-            await self.page.route("**/api/upload/upload", hold_upload, times=1)
+            await self.page.route(re.compile(r"/api/upload/part\?"), hold_upload, times=1)
             try:
                 await self.button("Upload video").click()
                 submit = self.page.locator("#submit-button")

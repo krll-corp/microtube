@@ -62,6 +62,8 @@ class UploadTests(unittest.TestCase):
 
     def test_upload_requires_a_session(self):
         request(client(), "upload", "/api/upload/upload", data=b"", status=401)
+        request(client(), "upload", "/api/upload/part?kind=video&offset=0", data=b"part",
+                headers={"Idempotency-Key": token_hex(16)}, status=401)
 
     def test_upload_persists_owner_duration_and_tag_order(self):
         opener = account()
@@ -89,3 +91,34 @@ class UploadTests(unittest.TestCase):
         self.assertEqual(repeated, result)
         other = upload(account(), "Another owner's upload", self.clip, key=key)
         self.assertNotEqual(other["id"], result["id"])
+
+    def test_upload_resumes_at_the_stored_offset(self):
+        opener = account()
+        other = account()
+        key = {"Idempotency-Key": token_hex(16)}
+        split = len(self.clip) // 2
+        first, rest = self.clip[:split], self.clip[split:]
+
+        def part(client, offset, data):
+            body, _ = request(client, "upload", f"/api/upload/part?kind=video&offset={offset}",
+                              data=data, headers=key)
+            return json.loads(body)["offset"]
+
+        def finish(client, status=200):
+            data = urlencode({"title": "Resumed upload", "filename": "resumed.mp4", "size": len(self.clip)}).encode()
+            body, _ = request(client, "upload", "/api/upload/upload", data=data, headers=key, status=status)
+            return json.loads(body)
+
+        self.assertEqual(part(opener, 0, first), split)
+        self.assertEqual(part(opener, 0, first), split)
+        self.assertEqual(part(opener, split + 1, rest), split)
+        self.assertEqual(part(other, split, rest), 0)
+        finish(opener, status=409)
+        finish(other, status=409)
+        self.assertEqual(part(opener, split, rest), len(self.clip))
+
+        result = finish(opener)
+        self.assertEqual(finish(opener), result)
+        self.assertEqual(result["filename"], "resumed.mp4")
+        body, _ = request(client(), "main", f"/api/video/videos?id={result['id']}")
+        self.assertEqual(body, self.clip)

@@ -82,9 +82,11 @@
     const progressBar = document.getElementById("progress-bar");
     const progressText = document.getElementById("progress-text");
     const progressPercent = document.getElementById("progress-percent");
+    const MAX_PART = 8 * 1024 * 1024;
+    const MIN_PART = 16 * 1024;
 
     let previewUrl = null;
-    let uploadKey = null;
+    let upload = null;
 
     function serviceURL(port) {
         if (window.MICROTUBE_URLS) return new URL(window.MICROTUBE_URLS[port], location.href);
@@ -128,7 +130,7 @@
 
     function useFile(file) {
         if (!file) return;
-        uploadKey = null;
+        upload = null;
 
         if (!file.name.toLowerCase().endsWith(".mp4")) {
             clearPreview();
@@ -184,107 +186,140 @@
         useFile(file);
     });
 
-    form.addEventListener("input", () => { uploadKey = null; });
+    form.addEventListener("input", () => { upload = null; });
 
-    form.addEventListener("submit", event => {
+    function sendUpload(url, body, key, timeout, onProgress) {
+        return new Promise((resolve, reject) => {
+            const request = new XMLHttpRequest();
+            request.open("POST", url);
+            request.setRequestHeader("Idempotency-Key", key);
+            request.withCredentials = true;
+            request.responseType = "json";
+            request.timeout = timeout;
+
+            if (onProgress) request.upload.onprogress = event => onProgress(event.loaded);
+            const interrupted = () => reject(Object.assign(
+                new Error("Transfer interrupted. Click Upload video to resume."), {retryable: true}
+            ));
+            request.onerror = request.ontimeout = request.onabort = interrupted;
+            request.onload = () => {
+                const {status, response} = request;
+                if (status >= 200 && status < 300 && response) {
+                    resolve(response);
+                    return;
+                }
+                const message = status === 401 || status === 403
+                    ? "Sign in to MicroTube and click Upload video to resume."
+                    : typeof response?.detail === "string" ? response.detail : `Upload failed (HTTP ${status}).`;
+                reject(Object.assign(new Error(message), {status, retryable: status === 408 || status === 429 || status >= 500}));
+            };
+            request.send(body);
+        });
+    }
+
+    async function sendParts(file, kind, session, progress) {
+        let partSize = 1024 * 1024;
+        let retries = 0;
+        while (session[kind] < file.size) {
+            const offset = session[kind];
+            const part = file.slice(offset, offset + partSize);
+            const started = performance.now();
+            let sent = 0;
+            try {
+                progressText.textContent = "Transferring file";
+                const {offset: stored} = await sendUpload(
+                    `/api/upload/part?kind=${kind}&offset=${offset}`, part, session.key, 90_000,
+                    loaded => { sent = Math.min(part.size, loaded); progress(offset + sent); }
+                );
+                if (!Number.isSafeInteger(stored) || stored < 0 || stored > file.size || stored === offset) {
+                    throw new Error("The server returned an invalid upload position.");
+                }
+                session[kind] = stored;
+                progress(stored);
+                if (stored > offset) retries = 0;
+                else if (++retries > 3) throw new Error("Upload lost progress. Click Upload video to resume.");
+                const elapsed = Math.max(1, performance.now() - started);
+                partSize = Math.min(MAX_PART, Math.max(MIN_PART, Math.floor(part.size * 20_000 / elapsed)));
+            } catch (error) {
+                if (!error.retryable || ++retries > 3) throw error;
+                progress(offset);
+                progressText.textContent = "Retrying interrupted transfer";
+                partSize = Math.max(MIN_PART, Math.floor((sent || part.size) / 2));
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+    }
+
+    form.addEventListener("submit", async event => {
         event.preventDefault();
         if (submitButton.disabled) return;
         feedback.hidden = true;
 
         const file = fileInput.files[0];
 
-        if (!file || !file.name.toLowerCase().endsWith(".mp4")) {
+        if (!file?.size || !file.name.toLowerCase().endsWith(".mp4")) {
             showMessage("Choose an MP4 file first.");
             return;
         }
 
         submitButton.disabled = true;
-        uploadKey ??= Array.from(crypto.getRandomValues(new Uint8Array(16)),
-            byte => byte.toString(16).padStart(2, "0")).join("");
-        const requestKey = uploadKey;
+        upload ??= {
+            key: Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join(""),
+            video: 0,
+            thumbnail: 0,
+        };
+        const session = upload;
         const formData = new FormData(form);
+        const thumbnail = formData.get("thumbnail");
+        const thumbnailSize = thumbnail?.size || 0;
+        const total = file.size + thumbnailSize;
+        formData.delete("file");
+        formData.delete("thumbnail");
+        formData.set("filename", file.name);
+        formData.set("size", String(file.size));
+        formData.set("thumbnail_size", String(thumbnailSize));
 
         submitButton.textContent = "Uploading...";
         progressWrap.hidden = false;
-        progressBar.value = 0;
         progressText.textContent = "Transferring file";
-        progressPercent.textContent = "0%";
 
-        const request = new XMLHttpRequest();
-        request.open("POST", "/api/upload/upload");
-        request.setRequestHeader("Idempotency-Key", requestKey);
-        request.withCredentials = true;
-        request.responseType = "text";
-
-        request.upload.addEventListener("progress", event => {
-            if (!event.lengthComputable) return;
-
-            const percent = Math.round((event.loaded / event.total) * 100);
+        function progress(loaded) {
+            const percent = Math.floor(loaded / total * 100);
             progressBar.value = percent;
             progressPercent.textContent = `${percent}%`;
-            if (event.loaded === event.total) progressText.textContent = "Processing upload";
-        });
+        }
 
-        request.addEventListener("load", () => {
+        try {
+            progress(session.video + session.thumbnail);
+            await sendParts(file, "video", session, progress);
+            if (thumbnailSize) await sendParts(thumbnail, "thumbnail", session, loaded => progress(file.size + loaded));
+
+            progress(total);
+            progressText.textContent = "Processing upload";
+            const result = await sendUpload("/api/upload/upload", formData, session.key, 600_000);
+            if (!result.stored) throw new Error("The server did not confirm the upload.");
+            if (upload === session) {
+                form.reset();
+                clearPreview();
+                upload = null;
+            }
+            progressText.textContent = "Upload complete";
+            showMessage(`Video “${result.title}” uploaded successfully. ID: ${result.id}.`, "success");
+
+            const link = document.createElement("a");
+            const watchURL = serviceURL(8080);
+            watchURL.search = new URLSearchParams({video: result.id}).toString();
+            link.href = watchURL.href;
+            link.textContent = "Watch video";
+            link.className = "watch-link";
+            feedback.append(document.createElement("br"), link);
+        } catch (error) {
+            if (error.status === 409) session.video = session.thumbnail = 0;
+            showMessage(error.message);
+        } finally {
             submitButton.disabled = false;
             submitButton.textContent = "Upload video";
-
-            let result = {};
-
-            try {
-                result = JSON.parse(request.responseText);
-            } catch {
-                result = {};
-            }
-
-            if (request.status >= 200 && request.status < 300 && result.stored) {
-                if (uploadKey === requestKey) {
-                    form.reset();
-                    clearPreview();
-                    uploadKey = null;
-                }
-                progressBar.value = 100;
-                progressPercent.textContent = "100%";
-                progressText.textContent = "Upload complete";
-
-                showMessage(
-                    `Video “${result.title}” uploaded successfully. ID: ${result.id}.`,
-                    "success"
-                );
-
-                const link = document.createElement("a");
-                const watchURL = serviceURL(8080);
-                watchURL.search = new URLSearchParams({video: result.id}).toString();
-                link.href = watchURL.href;
-                link.textContent = "Watch video";
-                link.className = "watch-link";
-                feedback.append(document.createElement("br"), link);
-
-                return;
-            }
-
-            if (request.status === 401 || request.status === 403) {
-                showMessage(
-                    "The server rejected the request. Sign in to MicroTube and try again."
-                );
-                return;
-            }
-
-            const detail = result.detail;
-            showMessage(
-                typeof detail === "string"
-                    ? detail
-                    : `Could not upload the video (HTTP ${request.status}).`
-            );
-        });
-
-        request.addEventListener("error", () => {
-            submitButton.disabled = false;
-            submitButton.textContent = "Upload video";
-            showMessage("Could not connect to the upload server.");
-        });
-
-        request.send(formData);
+        }
     });
 })();
 </script>

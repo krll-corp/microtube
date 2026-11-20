@@ -1,19 +1,26 @@
 import os
 import secrets
 import shutil
-from contextlib import closing
-from typing import Annotated
+import time
+from contextlib import ExitStack, closing, contextmanager
+from hashlib import sha256
+from typing import Annotated, Literal
 import av
 import psycopg2
-from fastapi import Depends, FastAPI, Form, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query, Request, UploadFile
 from psycopg2.extras import Json
+from starlette.concurrency import run_in_threadpool
+from starlette.requests import ClientDisconnect
 from microtube_auth import require_user
 from microtube_media import encode_thumbnail, first_video_frame, video_duration_seconds
-from microtube_storage import find_video, save_thumbnail, save_video, thumbnail_path, video_path
+from microtube_storage import VIDEO_STORAGE_DIR, find_video, save_thumbnail, save_video, thumbnail_path, video_path
 from microtube_tags import get_tag_ids
-from microtube_services import commit_media, database_options
+from microtube_services import commit_media, database_options, reload_media
 
 app = FastAPI()
+MAX_PART_BYTES = 8 * 1024 * 1024
+UPLOAD_IDLE_TTL = 24 * 60 * 60
+UploadKey = Annotated[str, Header(pattern=r"^[a-f0-9]{32}$")]
 
 def validate_upload(file):
     try:
@@ -58,9 +65,18 @@ def uploaded_thumbnail(file):
         raise HTTPException(415, "Expected a JPEG, PNG or WebP thumbnail up to 16 megapixels") from error
 
 
-def previous_upload(cursor, owner_hash, key):
-    cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-                   ("microtube:upload:" + owner_hash + ":" + key,))
+def connect():
+    return psycopg2.connect(
+        database="videos", user=os.getenv("POSTGRES_USER", "admin"),
+        password=os.environ["POSTGRES_PASSWORD"], **database_options("videos"),
+        connect_timeout=5,
+    )
+
+
+def previous_upload(cursor, owner_hash, key, *, lock=True):
+    if lock:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                       ("microtube:upload:" + owner_hash + ":" + key,))
     cursor.execute(
         "SELECT metadata FROM videos WHERE metadata->>'owner_hash' = %s AND metadata->>'upload_key' = %s",
         (owner_hash, key),
@@ -74,16 +90,99 @@ def previous_upload(cursor, owner_hash, key):
     return metadata, [names[id] for id in metadata["tag_ids"] if id in names]
 
 
+@contextmanager
+def staged_upload(owner_hash, key):
+    owner = sha256(owner_hash.encode()).hexdigest()
+    directory = VIDEO_STORAGE_DIR / ".uploads" / owner / key
+    with closing(connect()) as connection, connection, connection.cursor() as cursor:
+        # Serialize writes and cleanup for this owner across container restarts.
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                       ("microtube:upload-parts:" + owner,))
+        reload_media()
+        yield directory, cursor
+
+
+def store_part(owner_hash, key, kind, offset, body):
+    with staged_upload(owner_hash, key) as (directory, _):
+        path = directory / kind
+        stored = path.stat().st_size if path.exists() else 0
+        if offset != stored:
+            return {"offset": stored}
+        if not directory.exists():
+            directory.mkdir(parents=True)
+            deadline = time.time() - UPLOAD_IDLE_TTL
+            for attempt in directory.parent.iterdir():
+                if attempt != directory and attempt.is_dir() and attempt.stat().st_mtime < deadline:
+                    shutil.rmtree(attempt)
+        with path.open("ab") as output:
+            output.write(body)
+        os.utime(directory, None)
+        commit_media()
+        return {"offset": stored + len(body)}
+
+
+@app.post("/part")
+async def upload_part(
+    request: Request,
+    idempotency_key: UploadKey,
+    offset: Annotated[int, Query(ge=0)],
+    kind: Literal["video", "thumbnail"],
+    owner_hash: str = Depends(require_user),
+):
+    body = bytearray()
+    try:
+        async for chunk in request.stream():
+            if len(body) + len(chunk) > MAX_PART_BYTES:
+                raise HTTPException(413, "Upload part exceeds 8 MiB")
+            body.extend(chunk)
+    except ClientDisconnect as error:
+        raise HTTPException(408, "Upload part was interrupted") from error
+    if not body:
+        raise HTTPException(400, "Upload part is empty")
+    return await run_in_threadpool(store_part, owner_hash, idempotency_key, kind, offset, body)
+
+
 @app.post("/upload")
 def run(
-    file: UploadFile,
+    file: UploadFile | None = None,
     owner_hash: str = Depends(require_user),
     title: str = Form(...),
     description: str = Form(""),
     tags: str = Form(""),
     thumbnail: UploadFile | None = None,
     idempotency_key: Annotated[str | None, Header(pattern=r"^[a-f0-9]{32}$")] = None,
+    filename: str = Form(""),
+    size: int | None = Form(None, gt=0),
+    thumbnail_size: int = Form(0, ge=0),
 ):
+    if file is not None:
+        return store_upload(file, thumbnail, owner_hash, title, description, tags, idempotency_key)
+    if not idempotency_key or not filename or size is None:
+        raise HTTPException(422, "A file or completed upload parts are required")
+
+    with staged_upload(owner_hash, idempotency_key) as (directory, cursor):
+        previous = previous_upload(cursor, owner_hash, idempotency_key, lock=False)
+        if previous is not None:
+            result = upload_response(*previous)
+        else:
+            video = directory / "video"
+            image = directory / "thumbnail"
+            if not video.is_file() or video.stat().st_size != size:
+                raise HTTPException(409, "Video parts are incomplete. Retry the upload.")
+            if thumbnail_size and (not image.is_file() or image.stat().st_size != thumbnail_size):
+                raise HTTPException(409, "Thumbnail parts are incomplete. Retry the upload.")
+            with ExitStack() as stack:
+                file = UploadFile(stack.enter_context(video.open("rb")), filename=filename)
+                if thumbnail_size:
+                    thumbnail = UploadFile(stack.enter_context(image.open("rb")), filename="thumbnail")
+                result = store_upload(file, thumbnail, owner_hash, title, description, tags, idempotency_key)
+        if directory.exists():
+            shutil.rmtree(directory)
+            commit_media()
+        return result
+
+
+def store_upload(file, thumbnail, owner_hash, title, description, tags, idempotency_key):
     frame, duration_seconds = validate_upload(file)
     jpeg = uploaded_thumbnail(thumbnail) if thumbnail and thumbnail.filename else encode_thumbnail(frame)
     del frame
@@ -118,11 +217,7 @@ def run(
     try:
         save_thumbnail(id, jpeg)
         commit_media()
-        with closing(psycopg2.connect(
-            database="videos", user=os.getenv("POSTGRES_USER", "admin"),
-            password=os.environ["POSTGRES_PASSWORD"], **database_options("videos"),
-            connect_timeout=5,
-        )) as connection:
+        with closing(connect()) as connection:
             with connection:
                 with connection.cursor() as cursor:
                     previous = previous_upload(cursor, owner_hash, idempotency_key) if idempotency_key else None
@@ -140,6 +235,10 @@ def run(
             shutil.rmtree(PATH_TO_VIDEO)
             preview_path.unlink(missing_ok=True)
 
+    return upload_response(metadata, tag_names)
+
+
+def upload_response(metadata, tag_names):
     return {
         "id": metadata["id"],
         "owner_hash": metadata["owner_hash"],
