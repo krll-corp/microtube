@@ -1,14 +1,18 @@
+import json
+import logging
 import os
 import secrets
 import shutil
 import time
 from contextlib import ExitStack, closing, contextmanager
 from hashlib import sha256
-from tempfile import TemporaryFile
+from pathlib import Path
+from tempfile import TemporaryDirectory, TemporaryFile
 from typing import Annotated, Literal
 import av
 import psycopg2
-from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi.responses import JSONResponse
 from psycopg2.extras import Json
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
@@ -17,6 +21,7 @@ from microtube_media import encode_thumbnail, first_video_frame, video_duration_
 from microtube_storage import VIDEO_STORAGE_DIR, find_video, save_thumbnail, save_video, thumbnail_path, video_path
 from microtube_tags import get_tag_ids
 from microtube_services import commit_media, database_options, reload_media
+from transcode import inspect_upload, transcode_video
 
 app = FastAPI()
 MAX_PART_BYTES = 8 * 1024 * 1024
@@ -24,9 +29,10 @@ UPLOAD_IDLE_TTL = 24 * 60 * 60
 UploadKey = Annotated[str, Header(pattern=r"^[a-f0-9]{32}$")]
 
 def remux_mp4(container, target):
-    if video_stream(container) is None:
+    video = video_stream(container)
+    if video is None:
         raise ValueError("Missing video track")
-    streams = [stream for stream in container.streams if stream.type in ("video", "audio")]
+    streams = [video, *container.streams.audio]
     with av.open(target, mode="w", format="mp4") as output:
         mapping = {}
         for stream in streams:
@@ -41,25 +47,19 @@ def remux_mp4(container, target):
 
 
 @contextmanager
-def prepare_upload(file):
+def prepare_upload(file, mode):
     with ExitStack() as files:
         source = file.file
         try:
-            with av.open(source, mode="r", format="mp4") as container:
-                brand = container.metadata.get("major_brand", "").strip()
-                if brand == "qt" and (file.filename or "").lower().endswith(".mp4"):
-                    source = files.enter_context(TemporaryFile())
+            if mode == "remux":
+                source = files.enter_context(TemporaryFile())
+                with av.open(file.file, mode="r") as container:
                     remux_mp4(container, source)
-                elif not brand or brand.startswith(("qt", "3g", "M4A", "mjp2")):
-                    raise ValueError("Expected an MP4 video track")
-                else:
-                    frame, duration = first_video_frame(container), video_duration_seconds(container)
-            if source is not file.file:
                 source.seek(0)
-                with av.open(source, mode="r", format="mp4") as container:
-                    frame, duration = first_video_frame(container), video_duration_seconds(container)
+            with av.open(source, mode="r", format="mp4") as container:
+                frame, duration = first_video_frame(container), video_duration_seconds(container)
         except (av.FFmpegError, ValueError) as error:
-            raise HTTPException(415, "Expected an MP4 with a readable video track") from error
+            raise HTTPException(415, "Expected a supported file with a readable video track") from error
         finally:
             file.file.seek(0)
         source.seek(0)
@@ -137,7 +137,7 @@ def store_part(owner_hash, key, kind, offset, body):
     with staged_upload(owner_hash, key) as (directory, _):
         path = directory / kind
         stored = path.stat().st_size if path.exists() else 0
-        if offset != stored:
+        if offset != stored or (directory / "job.json").exists():
             return {"offset": stored}
         if not directory.exists():
             directory.mkdir(parents=True)
@@ -175,6 +175,7 @@ async def upload_part(
 
 @app.post("/upload")
 def run(
+    background: BackgroundTasks,
     file: UploadFile | None = None,
     owner_hash: str = Depends(require_user),
     title: str = Form(...),
@@ -187,34 +188,173 @@ def run(
     thumbnail_size: int = Form(0, ge=0),
 ):
     if file is not None:
-        return store_upload(file, thumbnail, owner_hash, title, description, tags, idempotency_key)
-    if not idempotency_key or not filename or size is None:
+        media = inspect_upload(file.file)
+        if media["mode"] != "transcode":
+            return store_upload(file, thumbnail, owner_hash, title, description, tags, idempotency_key,
+                                mode=media["mode"])
+        filename = file.filename or "video"
+        idempotency_key = idempotency_key or secrets.token_hex(16)
+    elif not idempotency_key or not filename or size is None:
         raise HTTPException(422, "A file or completed upload parts are required")
 
+    submit = getattr(app.state, "submit_upload", None)
     with staged_upload(owner_hash, idempotency_key) as (directory, cursor):
         previous = previous_upload(cursor, owner_hash, idempotency_key, lock=False)
         if previous is not None:
-            result = upload_response(*previous)
-        else:
+            if not (directory / "job.json").exists():
+                clear_job(directory)
+            return upload_response(*previous)
+        job = read_job(directory)
+        if job is None:
             video = directory / "video"
             image = directory / "thumbnail"
-            if not video.is_file() or video.stat().st_size != size:
-                raise HTTPException(409, "Video parts are incomplete. Retry the upload.")
-            if thumbnail_size and (not image.is_file() or image.stat().st_size != thumbnail_size):
-                raise HTTPException(409, "Thumbnail parts are incomplete. Retry the upload.")
-            with ExitStack() as stack:
-                file = UploadFile(stack.enter_context(video.open("rb")), filename=filename)
-                if thumbnail_size:
-                    thumbnail = UploadFile(stack.enter_context(image.open("rb")), filename="thumbnail")
-                result = store_upload(file, thumbnail, owner_hash, title, description, tags, idempotency_key)
-        if directory.exists():
-            shutil.rmtree(directory)
-            commit_media()
-        return result
+            if file is None:
+                if not video.is_file() or video.stat().st_size != size:
+                    raise HTTPException(409, "Video parts are incomplete. Retry the upload.")
+                if thumbnail_size and (not image.is_file() or image.stat().st_size != thumbnail_size):
+                    raise HTTPException(409, "Thumbnail parts are incomplete. Retry the upload.")
+                has_thumbnail = bool(thumbnail_size)
+                with video.open("rb") as source:
+                    media = inspect_upload(source)
+            else:
+                directory.mkdir(parents=True, exist_ok=True)
+                with video.open("wb") as output:
+                    shutil.copyfileobj(file.file, output)
+                has_thumbnail = bool(thumbnail and thumbnail.filename)
+                if has_thumbnail:
+                    with image.open("wb") as output:
+                        shutil.copyfileobj(thumbnail.file, output)
+            job = dict(**media, filename=filename, title=title, description=description, tags=tags,
+                       has_thumbnail=has_thumbnail, progress=0 if media["duration"] else None)
+            if job["mode"] == "direct":
+                result = publish_job(directory, owner_hash, idempotency_key, job)
+                clear_job(directory)
+                return result
+        elif "error" in job:
+            del job["error"]
+            job["progress"] = 0 if job["duration"] else None
+        elif not submit or job.get("call_id"):
+            if not submit:
+                background.add_task(process_upload, owner_hash, idempotency_key)
+            return pending_upload(job, idempotency_key)
+        if submit:
+            job["call_id"] = submit(owner_hash, idempotency_key).object_id
+        write_job(directory, job)
+    if not submit:
+        background.add_task(process_upload, owner_hash, idempotency_key)
+    return pending_upload(job, idempotency_key)
 
 
-def store_upload(file, thumbnail, owner_hash, title, description, tags, idempotency_key):
-    with prepare_upload(file) as (source, frame, duration_seconds):
+def read_job(directory):
+    try:
+        return json.loads((directory / "job.json").read_text())
+    except FileNotFoundError:
+        return None
+
+
+def write_job(directory, job):
+    path = directory / "job.tmp"
+    path.write_text(json.dumps(job))
+    path.replace(directory / "job.json")
+    commit_media()
+
+
+def clear_job(directory):
+    if directory.exists():
+        shutil.rmtree(directory)
+        commit_media()
+
+
+def pending_upload(job, key):
+    result = {"processing": True, "idempotency_key": key}
+    if job["mode"] == "transcode":
+        result["progress"] = job["progress"]
+    return JSONResponse(result, status_code=202, headers={"Cache-Control": "no-store"})
+
+
+def try_job_lock(cursor, owner_hash, key):
+    cursor.execute("SELECT pg_try_advisory_xact_lock(hashtextextended(%s, 0))",
+                   ("microtube:upload-job:" + owner_hash + ":" + key,))
+    return cursor.fetchone()[0]
+
+
+@app.get("/status")
+def upload_status(background: BackgroundTasks, idempotency_key: UploadKey, owner_hash: str = Depends(require_user)):
+    with staged_upload(owner_hash, idempotency_key) as (directory, cursor):
+        previous = previous_upload(cursor, owner_hash, idempotency_key, lock=False)
+        if previous is not None:
+            return JSONResponse(upload_response(*previous), headers={"Cache-Control": "no-store"})
+        job = read_job(directory)
+        if job is None:
+            raise HTTPException(404, "Upload not found")
+        if "error" in job:
+            raise HTTPException(*job["error"])
+        call_id = job.get("call_id")
+        if call_id and time.time() - (directory / "job.json").stat().st_mtime > 60:
+            if app.state.upload_failed(call_id):
+                job["error"] = [500, "Video processing stopped. Click Upload video to retry."]
+                write_job(directory, job)
+                raise HTTPException(*job["error"])
+        if not getattr(app.state, "submit_upload", None) and try_job_lock(cursor, owner_hash, idempotency_key):
+            background.add_task(process_upload, owner_hash, idempotency_key)
+        return pending_upload(job, idempotency_key)
+
+
+def publish_job(directory, owner_hash, key, job, processed=None):
+    with ExitStack() as files:
+        video = UploadFile(files.enter_context((processed or directory / "video").open("rb")), filename=job["filename"])
+        thumbnail = None
+        if job["has_thumbnail"]:
+            thumbnail = UploadFile(files.enter_context((directory / "thumbnail").open("rb")), filename="thumbnail")
+        return store_upload(video, thumbnail, owner_hash, job["title"], job["description"], job["tags"], key,
+                            mode="direct" if processed else job["mode"])
+
+
+def process_upload(owner_hash, key, after_publish=None):
+    with ExitStack() as locks:
+        # Modal already runs one worker and its database can sleep while encoding.
+        if after_publish is None:
+            connection = locks.enter_context(closing(connect()))
+            locks.enter_context(connection)
+            if not try_job_lock(locks.enter_context(connection.cursor()), owner_hash, key):
+                return
+        with staged_upload(owner_hash, key) as (directory, cursor):
+            previous = previous_upload(cursor, owner_hash, key, lock=False)
+            job = read_job(directory)
+        if previous is None:
+            if job is None or "error" in job:
+                return
+
+            def update(percent):
+                job["progress"] = percent
+                write_job(directory, job)
+
+            try:
+                if job["mode"] == "transcode":
+                    update(0 if job["duration"] else None)
+                    with TemporaryDirectory() as work:
+                        output = Path(work) / "transcoded.mp4"
+                        transcode_video(directory / "video", output, job, update)
+                        publish_job(directory, owner_hash, key, job, output)
+                else:
+                    publish_job(directory, owner_hash, key, job)
+            except HTTPException as error:
+                job["error"] = [error.status_code, error.detail]
+                write_job(directory, job)
+                return
+            except Exception:
+                logging.exception("Upload processing failed")
+                job["error"] = [500, "Video processing failed. Click Upload video to retry."]
+                write_job(directory, job)
+                return
+        if after_publish:
+            after_publish()
+        with staged_upload(owner_hash, key):
+            clear_job(directory)
+
+
+def store_upload(file, thumbnail, owner_hash, title, description, tags, idempotency_key, *, mode):
+    with prepare_upload(file, mode) as (source, frame, duration_seconds):
         jpeg = uploaded_thumbnail(thumbnail) if thumbnail and thumbnail.filename else encode_thumbnail(frame)
         del frame
         while True:

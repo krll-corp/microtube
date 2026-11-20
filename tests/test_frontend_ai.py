@@ -205,7 +205,7 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
 
         async def choose_file(name, content_type, buffer):
             async with self.page.expect_file_chooser() as selection:
-                await self.button("Choose MP4").click()
+                await self.button("Choose video").click()
             chooser = await selection.value
             await chooser.set_files({"name": name, "mimeType": content_type, "buffer": buffer})
 
@@ -215,7 +215,7 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
         feedback = self.page.locator("#feedback")
 
         async def text_file_rejected():
-            await expect(feedback).to_have_text("Please choose a video file with the .mp4 extension.")
+            await expect(feedback).to_have_text("Please choose a video file.")
             await feedback.scroll_into_view_if_needed()
 
         await self.step("Check what happens when you select a text file", [
@@ -236,7 +236,7 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
 
         await self.step("Choose a playable MP4 after the file error", [
             ("Choose notes.txt again", choose_text),
-            ("Scroll to Choose MP4 and select test.mp4", choose_mp4),
+            ("Scroll to Choose video and select test.mp4", choose_mp4),
         ], preview_ready)
 
         title = "CI upload playback"

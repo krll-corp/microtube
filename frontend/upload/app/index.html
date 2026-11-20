@@ -32,9 +32,9 @@
         <h1>Upload a video</h1>
         <form id="upload-form" method="post" enctype="multipart/form-data" action="/api/upload/upload">
             <div class="dropzone" id="dropzone">
-                <button class="button" type="button" id="choose-file">Choose MP4</button>
+                <button class="button" type="button" id="choose-file">Choose video</button>
                 <span class="hint">or drop a file here</span>
-                <input id="video-file" name="file" type="file" accept=".mp4,video/mp4" hidden>
+                <input id="video-file" name="file" type="file" accept="video/*,.mov,.qt,.mkv,.avi,.m2ts,.mts,.ogv,.vob" hidden>
                 <div class="file-info" id="file-info" aria-live="polite" hidden></div>
                 <video id="video-preview" class="preview" controls playsinline hidden></video>
             </div>
@@ -62,6 +62,13 @@
                 </label>
                 <progress id="progress-bar" max="100" value="0"></progress>
             </div>
+            <div class="progress-wrap" id="transcode-wrap" hidden>
+                <label class="progress-label" for="transcode-bar">
+                    <span id="transcode-text">Transcoding video</span>
+                    <span id="transcode-percent"></span>
+                </label>
+                <progress id="transcode-bar" max="100"></progress>
+            </div>
             <div id="feedback" class="message" role="status" aria-live="polite" aria-atomic="true" hidden></div>
             <div class="submit-row">
                 <button class="button button-primary" id="submit-button" type="submit">Upload video</button>
@@ -82,6 +89,10 @@
     const progressBar = document.getElementById("progress-bar");
     const progressText = document.getElementById("progress-text");
     const progressPercent = document.getElementById("progress-percent");
+    const transcodeWrap = document.getElementById("transcode-wrap");
+    const transcodeBar = document.getElementById("transcode-bar");
+    const transcodeText = document.getElementById("transcode-text");
+    const transcodePercent = document.getElementById("transcode-percent");
     const MAX_PART = 8 * 1024 * 1024;
     const MIN_PART = 16 * 1024;
 
@@ -112,7 +123,7 @@
     }
 
     function showMessage(message, type = "error") {
-        if (type === "error") progressWrap.hidden = true;
+        if (type === "error") progressWrap.hidden = transcodeWrap.hidden = true;
         feedback.hidden = false;
         feedback.className = `message ${type}`;
         feedback.textContent = message;
@@ -128,13 +139,19 @@
         previewUrl = null;
     }
 
+    function isVideo(file) {
+        return file?.size && (file.type.startsWith("video/") ||
+            /\.(mp4|m4v|mov|qt|mkv|webm|avi|mpg|mpeg|ts|m2ts|mts|flv|wmv|ogv|3gp|vob)$/i.test(file.name));
+    }
+
     function useFile(file) {
         if (!file) return;
+        if (!submitButton.disabled) progressWrap.hidden = transcodeWrap.hidden = true;
         upload = null;
 
-        if (!file.name.toLowerCase().endsWith(".mp4")) {
+        if (!isVideo(file)) {
             clearPreview();
-            showMessage("Please choose a video file with the .mp4 extension.");
+            showMessage("Please choose a video file.");
             return;
         }
 
@@ -166,6 +183,7 @@
     fileInput.addEventListener("change", () => {
         useFile(fileInput.files[0]);
     });
+    preview.addEventListener("error", () => { preview.hidden = true; });
 
     ["dragenter", "dragover"].forEach(name => {
         dropzone.addEventListener(name, event => {
@@ -191,7 +209,7 @@
     function sendUpload(url, body, key, timeout, onProgress) {
         return new Promise((resolve, reject) => {
             const request = new XMLHttpRequest();
-            request.open("POST", url);
+            request.open(body === null ? "GET" : "POST", url);
             request.setRequestHeader("Idempotency-Key", key);
             request.withCredentials = true;
             request.responseType = "json";
@@ -215,6 +233,33 @@
             };
             request.send(body);
         });
+    }
+
+    function showTranscodeProgress(percent) {
+        transcodeWrap.hidden = false;
+        transcodeText.textContent = percent === 100 ? "Transcoding complete" : "Transcoding video";
+        transcodePercent.textContent = percent === null ? "" : `${percent}%`;
+        if (percent === null) transcodeBar.removeAttribute("value");
+        else transcodeBar.value = percent;
+    }
+
+    async function waitForUpload(result, key) {
+        let retries = 0;
+        while (result.processing) {
+            if (Object.hasOwn(result, "progress")) {
+                progressText.textContent = "Transfer complete";
+                showTranscodeProgress(result.progress);
+            }
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            try {
+                result = await sendUpload("/api/upload/status", null, key, 20_000);
+                retries = 0;
+            } catch (error) {
+                if (!error.retryable || ++retries > 3) throw error;
+            }
+        }
+        if (!transcodeWrap.hidden) showTranscodeProgress(100);
+        return result;
     }
 
     async function sendParts(file, kind, session, progress) {
@@ -257,8 +302,8 @@
 
         const file = fileInput.files[0];
 
-        if (!file?.size || !file.name.toLowerCase().endsWith(".mp4")) {
-            showMessage("Choose an MP4 file first.");
+        if (!isVideo(file)) {
+            showMessage("Choose a video file first.");
             return;
         }
 
@@ -281,6 +326,7 @@
 
         submitButton.textContent = "Uploading...";
         progressWrap.hidden = false;
+        transcodeWrap.hidden = true;
         progressText.textContent = "Transferring file";
 
         function progress(loaded) {
@@ -296,7 +342,9 @@
 
             progress(total);
             progressText.textContent = "Processing upload";
-            const result = await sendUpload("/api/upload/upload", formData, session.key, 600_000);
+            const result = await waitForUpload(
+                await sendUpload("/api/upload/upload", formData, session.key, 600_000), session.key
+            );
             if (!result.stored) throw new Error("The server did not confirm the upload.");
             if (upload === session) {
                 form.reset();

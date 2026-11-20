@@ -128,6 +128,19 @@ def load_service(name):
     return module
 
 
+def upload_failed(call_id):
+    try:
+        modal.FunctionCall.from_id(call_id).get(timeout=0)
+    except (modal.exception.FunctionTimeoutError, modal.exception.OutputExpiredError):
+        return True
+    except (modal.exception.TimeoutError, modal.exception.ConnectionError, modal.exception.ServiceError):
+        return False
+    except Exception:
+        logging.exception("Upload processing failed on Modal")
+        return True
+    return False
+
+
 def serve(name):
     from fastapi import Request
     from fastapi.responses import JSONResponse
@@ -137,6 +150,9 @@ def serve(name):
         Database(name="users" if name == "auth" else "videos").ready.remote()
     if name == "auth":
         module.app.mount("/", module.internal)
+    if name == "upload":
+        module.app.state.submit_upload = backend_upload_process.spawn
+        module.app.state.upload_failed = upload_failed
 
     @module.app.middleware("http")
     async def internal_request(request: Request, call_next):
@@ -147,13 +163,14 @@ def serve(name):
         if host:
             request.scope["headers"] = [(key, value) for key, value in request.scope["headers"] if key != b"host"]
             request.scope["headers"].append((b"host", host.encode("ascii")))
-        upload_part = name == "upload" and request.url.path == "/part"
-        if name in ("upload", "video", "ai/video") and not upload_part:
+        if name in ("video", "ai/video") or (name == "upload" and request.url.path == "/upload"):
             await media.reload.aio()
         response = await call_next(request)
         if name == "video":
             await media.commit.aio()
-        if response.status_code < 400 and not upload_part and (request.method == "POST" or request.url.path == "/feed"):
+        if response.status_code < 400 and (request.method == "POST" or request.url.path == "/feed"):
+            if name == "upload" and (request.url.path != "/upload" or response.status_code != 200):
+                return response
             database = "users" if name == "auth" else "videos"
             await Database(name=database).flush.remote.aio()
             if name == "upload":
@@ -179,6 +196,17 @@ def backend_video():
 @modal.asgi_app()
 def backend_upload():
     return serve("upload")
+
+
+@app.function(**{**cpu, "image": image.apt_install("ffmpeg"), "cpu": 2, "memory": 4096,
+                 "max_containers": 1, "timeout": 86400, "scaledown_window": 60},
+              name="backend-upload-process", volumes={"/videos": media}, retries=3)
+def backend_upload_process(owner_hash, key):
+    def published():
+        Database(name="videos").flush.remote()
+        backend_indexing.spawn()
+
+    load_service("upload").process_upload(owner_hash, key, after_publish=published)
 
 
 @app.function(**cpu, name="backend-text")

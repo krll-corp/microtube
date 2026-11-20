@@ -5,6 +5,7 @@ workdir /app
 env VIDEO_STORAGE_DIR=/videos
 volume ["/videos"]
 
+run apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 run ["pip", "install", "fastapi", "uvicorn", "python-multipart", "psycopg2", "av"]
 
 copy app .
