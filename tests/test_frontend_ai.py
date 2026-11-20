@@ -79,16 +79,17 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
             on_permission_request=lambda req, inv: PermissionDecisionReject(),
         )
 
-    async def ask(self, session, prompt, *shots):
+    async def ask(self, session, prompt, *shots, timeout=60):
         attachments = [
             {"type": "blob", "data": b64encode(shot.read_bytes()).decode(),
              "mimeType": "image/png", "displayName": shot.name}
             for shot in shots
         ]
-        reply = await session.send_and_wait(prompt, attachments=attachments, timeout=60)
-        if reply is None or not getattr(reply.data, "content", None):
+        reply = await session.send_and_wait(prompt, attachments=attachments, timeout=timeout)
+        answer = (getattr(reply.data, "content", None) or "").strip() if reply else ""
+        if not answer:
             self.fail("The BYOK model returned no text")
-        return reply.data.content.strip()
+        return answer
 
     async def screenshot(self, checkpoint=None):
         suffix = checkpoint or ("initial" if not self.shots else "after")
@@ -126,7 +127,11 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
         trace = "\n".join(f"- {action}" for action in self.actions)
         shots = list(dict.fromkeys([self.shots[0], *self.review_shots, self.shots[-1]]))
         frames = "\n".join(f"- {shot.name}" for shot in shots)
-        async with await self.new_session(max_output_tokens=2048) as reviewer:
+        report = self.artifacts / "review.md"
+        evidence = f"# {self.case}\n\nActions\n\n{trace}\n\nScreenshots\n\n{frames}\n"
+        report.write_text(evidence + "\nThe visual review did not complete. See the workflow log.\n", encoding="utf-8")
+        # Reasoning tokens count toward the reviewer's completion budget.
+        async with await self.new_session(max_output_tokens=8192) as reviewer:
             notes = await self.ask(
                 reviewer,
                 f"Review the MicroTube {self.case} flow for UI and UX issues. The attached screenshots are listed "
@@ -135,10 +140,9 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
                 "observations. Name the screenshot and explain the impact of each issue, or say you found none."
                 f"\nScreenshots\n{frames}\nActions taken\n{trace}",
                 *shots,
+                timeout=120,
             )
-        (self.artifacts / "review.md").write_text(
-            f"# {self.case}\n\nActions\n\n{trace}\n\nScreenshots\n\n{frames}\n\n{notes}\n", encoding="utf-8",
-        )
+        report.write_text(evidence + f"\n{notes}\n", encoding="utf-8")
 
     def link(self, name):
         return self.page.get_by_role("link", name=name, exact=True)
