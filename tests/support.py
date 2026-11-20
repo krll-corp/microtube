@@ -16,7 +16,7 @@ CLIP = """
 import io, sys, av
 
 buffer = io.BytesIO()
-with av.open(buffer, "w", format="mp4") as media:
+with av.open(buffer, "w", format=sys.argv[2]) as media:
     stream = media.add_stream("libx264", rate=12)
     stream.width = stream.height = 64
     stream.pix_fmt = "yuv420p"
@@ -51,9 +51,9 @@ def address(service):
 
 
 @cache
-def make_clip(seconds):
+def make_clip(seconds, format_name="mp4"):
     return compose(
-        "exec", "-T", "backend-upload", "python", "-c", CLIP, str(seconds), capture_output=True,
+        "exec", "-T", "backend-upload", "python", "-c", CLIP, str(seconds), format_name, capture_output=True,
     ).stdout
 
 

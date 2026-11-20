@@ -4,6 +4,7 @@ import shutil
 import time
 from contextlib import ExitStack, closing, contextmanager
 from hashlib import sha256
+from tempfile import TemporaryFile
 from typing import Annotated, Literal
 import av
 import psycopg2
@@ -12,7 +13,7 @@ from psycopg2.extras import Json
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 from microtube_auth import require_user
-from microtube_media import encode_thumbnail, first_video_frame, video_duration_seconds
+from microtube_media import encode_thumbnail, first_video_frame, video_duration_seconds, video_stream
 from microtube_storage import VIDEO_STORAGE_DIR, find_video, save_thumbnail, save_video, thumbnail_path, video_path
 from microtube_tags import get_tag_ids
 from microtube_services import commit_media, database_options, reload_media
@@ -22,17 +23,47 @@ MAX_PART_BYTES = 8 * 1024 * 1024
 UPLOAD_IDLE_TTL = 24 * 60 * 60
 UploadKey = Annotated[str, Header(pattern=r"^[a-f0-9]{32}$")]
 
-def validate_upload(file):
-    try:
-        with av.open(file.file, mode="r", format="mp4") as container:
-            brand = container.metadata.get("major_brand", "").strip()
-            if not brand or brand.startswith(("qt", "3g", "M4A", "mjp2")):
-                raise ValueError("Expected an MP4 video track")
-            return first_video_frame(container), video_duration_seconds(container)
-    except (av.FFmpegError, ValueError) as error:
-        raise HTTPException(415, "Expected an MP4 with a readable video track") from error
-    finally:
-        file.file.seek(0)
+def remux_mp4(container, target):
+    if video_stream(container) is None:
+        raise ValueError("Missing video track")
+    streams = [stream for stream in container.streams if stream.type in ("video", "audio")]
+    with av.open(target, mode="w", format="mp4") as output:
+        mapping = {}
+        for stream in streams:
+            destination = output.add_stream_from_template(stream)
+            if stream.codec_context.codec_tag == "hvc1":
+                destination.codec_context.codec_tag = "hvc1"
+            mapping[stream.index] = destination
+        for packet in container.demux(streams):
+            if packet.size:
+                packet.stream = mapping[packet.stream.index]
+                output.mux(packet)
+
+
+@contextmanager
+def prepare_upload(file):
+    with ExitStack() as files:
+        source = file.file
+        try:
+            with av.open(source, mode="r", format="mp4") as container:
+                brand = container.metadata.get("major_brand", "").strip()
+                if brand == "qt" and (file.filename or "").lower().endswith(".mp4"):
+                    source = files.enter_context(TemporaryFile())
+                    remux_mp4(container, source)
+                elif not brand or brand.startswith(("qt", "3g", "M4A", "mjp2")):
+                    raise ValueError("Expected an MP4 video track")
+                else:
+                    frame, duration = first_video_frame(container), video_duration_seconds(container)
+            if source is not file.file:
+                source.seek(0)
+                with av.open(source, mode="r", format="mp4") as container:
+                    frame, duration = first_video_frame(container), video_duration_seconds(container)
+        except (av.FFmpegError, ValueError) as error:
+            raise HTTPException(415, "Expected an MP4 with a readable video track") from error
+        finally:
+            file.file.seek(0)
+        source.seek(0)
+        yield source, frame, duration
 
 def uploaded_thumbnail(file):
     source = file.file
@@ -183,22 +214,22 @@ def run(
 
 
 def store_upload(file, thumbnail, owner_hash, title, description, tags, idempotency_key):
-    frame, duration_seconds = validate_upload(file)
-    jpeg = uploaded_thumbnail(thumbnail) if thumbnail and thumbnail.filename else encode_thumbnail(frame)
-    del frame
-    while True:
-        id = secrets.token_urlsafe(6)
-        PATH_TO_VIDEO = video_path(id)
-        preview_path = thumbnail_path(id)
-        if PATH_TO_VIDEO.exists() or find_video(id) is not None or preview_path.exists():
-            continue
-        try:
-            size = save_video(id, file.file)
-            break
-        except FileExistsError:
-            if not PATH_TO_VIDEO.exists():
-                raise
-            file.file.seek(0)
+    with prepare_upload(file) as (source, frame, duration_seconds):
+        jpeg = uploaded_thumbnail(thumbnail) if thumbnail and thumbnail.filename else encode_thumbnail(frame)
+        del frame
+        while True:
+            id = secrets.token_urlsafe(6)
+            PATH_TO_VIDEO = video_path(id)
+            preview_path = thumbnail_path(id)
+            if PATH_TO_VIDEO.exists() or find_video(id) is not None or preview_path.exists():
+                continue
+            try:
+                size = save_video(id, source)
+                break
+            except FileExistsError:
+                if not PATH_TO_VIDEO.exists():
+                    raise
+                source.seek(0)
 
     tag_names = tags.split()
     metadata = {

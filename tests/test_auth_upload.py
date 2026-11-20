@@ -122,3 +122,14 @@ class UploadTests(unittest.TestCase):
         self.assertEqual(result["filename"], "resumed.mp4")
         body, _ = request(client(), "main", f"/api/video/videos?id={result['id']}")
         self.assertEqual(body, self.clip)
+
+    def test_upload_normalizes_quicktime_named_mp4(self):
+        clip = make_clip(2, "mov")
+        self.assertEqual(clip[4:12], b"ftypqt  ")
+        result = upload(account(), "QuickTime sent as MP4", clip)
+        self.assertTrue(result["stored"])
+        self.assertAlmostEqual(result["duration_seconds"], 2, places=2)
+        body, headers = request(client(), "main", f"/api/video/videos?id={result['id']}",
+                                headers={"Range": "bytes=0-11"}, status=206)
+        self.assertEqual(headers.get_content_type(), "video/mp4")
+        self.assertEqual(body[4:12], b"ftypisom")
