@@ -48,6 +48,13 @@ sys.stdout.buffer.write(buffer.getvalue())
 """
 
 
+def make_visual_clip(seconds, color):
+    return compose(
+        "exec", "-T", "backend-upload", "python", "-c", CLIP,
+        str(seconds), color, capture_output=True,
+    ).stdout
+
+
 def seed_videos():
     samples = (
         ("Forest trail", "forest", "305c42"),
@@ -60,10 +67,9 @@ def seed_videos():
     opener = account()
     videos = {}
     for number, (title, tag, color) in enumerate(samples):
-        clip = compose(
-            "exec", "-T", "backend-upload", "python", "-c", CLIP,
-            str(4 + number), color, capture_output=True,
-        ).stdout
+        # Leave time for the model to see playback and choose Pause.
+        seconds = 120 if title == "Forest trail" else 4 + number
+        clip = make_visual_clip(seconds, color)
         videos[title] = upload(opener, title, clip, tags=tag)
     worker(INDEX_VIDEOS, *(video["id"] for video in videos.values()))
     return videos

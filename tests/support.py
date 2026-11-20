@@ -74,11 +74,17 @@ def request(opener, service, path, *, data=None, headers=None, status=200, metho
         return response.read(), response.headers
 
 
-def account():
+def account_credentials(username=None, password="ci-password"):
+    login = uuid4().bytes if username is None else username.encode()
+    return {
+        "login_hash": sha256(sha256(login).digest()).hexdigest(),
+        "password_hash": sha256(sha256(password.encode()).digest()).hexdigest(),
+    }
+
+
+def account(username=None, password="ci-password"):
     opener = client()
-    login_hash = sha256(sha256(uuid4().bytes).digest()).hexdigest()
-    password_hash = sha256(sha256(b"ci-password").digest()).hexdigest()
-    credentials = urlencode({"login_hash": login_hash, "password_hash": password_hash}).encode()
+    credentials = urlencode(account_credentials(username, password)).encode()
     request(opener, "auth", "/api/auth/register", data=credentials, status=201)
     return opener
 
