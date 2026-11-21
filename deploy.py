@@ -53,7 +53,7 @@ cpu = dict(image=image, secrets=[credentials], cpu=0.125, memory=256,
 upload_worker = {**cpu, "image": upload_worker_image, "cpu": 2, "memory": 4096,
                  "max_containers": 1, "timeout": 86400, "scaledown_window": 60}
 gpu = dict(image=gpu_image, secrets=[credentials], gpu=os.getenv("MICROTUBE_GPU", "T4"),
-           cpu=0.25, memory=4096, min_containers=0, max_containers=2, timeout=600, startup_timeout=1200,
+           cpu=2, memory=4096, min_containers=0, max_containers=2, timeout=600, startup_timeout=1200,
            scaledown_window=60, volumes={"/videos": media.with_mount_options(read_only=True),
                                         "/root/.cache/huggingface": models.with_mount_options(read_only=True)})
 
@@ -259,6 +259,7 @@ def backend_indexing():
 
 @app.function(**{**cpu, "image": frontend_image}, name="frontend",
               volumes={"/videos": media.with_mount_options(read_only=True)})
+@modal.concurrent(max_inputs=4)
 @modal.asgi_app()
 def frontend():
     import httpx
@@ -275,6 +276,30 @@ def frontend():
                                cookies=CookieJar(policy=DefaultCookiePolicy(allowed_domains=())))
     routes = {"8080": "/", "8081": "/monitor/", "8082": "/upload/", "8083": "/auth/"}
     headers_to_skip = {b"connection", b"transfer-encoding", b"keep-alive", b"upgrade"}
+    media_lock = asyncio.Lock()
+    media_idle = asyncio.Event()
+    media_idle.set()
+    media_readers = 0
+
+    class PlaybackFile(FileResponse):
+        async def __call__(self, scope, receive, send):
+            nonlocal media_readers
+            path = Path(self.path)
+            async with media_lock:
+                if not path.is_file():
+                    # Let current responses close their files before reloading the Volume.
+                    await media_idle.wait()
+                    await media.reload.aio()
+                    if not path.is_file():
+                        raise HTTPException(404)
+                media_readers += 1
+                media_idle.clear()
+            try:
+                await super().__call__(scope, receive, send)
+            finally:
+                media_readers -= 1
+                if not media_readers:
+                    media_idle.set()
 
     async def upstream(request, service, path):
         target = await asyncio.to_thread(service_url, service, "") + path
@@ -335,11 +360,7 @@ def frontend():
         if not re.fullmatch(r"(?:master|720|1080|2160)\.m3u8|(?:720|1080|2160)-(?:init\.mp4|[0-9]+\.m4s)", name):
             raise HTTPException(404)
         path = playback_path(prefix + suffix) / name
-        if not path.is_file():
-            await media.reload.aio()
-        if not path.is_file():
-            raise HTTPException(404)
-        return FileResponse(path, media_type=types[path.suffix], headers={"Cache-Control": "public, max-age=3600"})
+        return PlaybackFile(path, media_type=types[path.suffix], headers={"Cache-Control": "public, max-age=3600"})
 
     @web.get("/app.js")
     def script():
