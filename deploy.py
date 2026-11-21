@@ -169,7 +169,7 @@ def serve(name):
         if host:
             request.scope["headers"] = [(key, value) for key, value in request.scope["headers"] if key != b"host"]
             request.scope["headers"].append((b"host", host.encode("ascii")))
-        if name in ("video", "ai/video") or (name == "upload" and request.url.path == "/upload"):
+        if name in ("video", "ai/video"):
             await media.reload.aio()
         response = await call_next(request)
         if name == "video":
@@ -199,6 +199,7 @@ def backend_video():
 
 
 @app.function(**{**cpu, "max_containers": 1, "memory": 512}, name="backend-upload", volumes={"/videos": media})
+@modal.concurrent(max_inputs=16)
 @modal.asgi_app()
 def backend_upload():
     return serve("upload")

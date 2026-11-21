@@ -5,10 +5,11 @@ import os
 import secrets
 import shutil
 import time
-from contextlib import ExitStack, closing, contextmanager
+from contextlib import ExitStack, closing, contextmanager, nullcontext
 from hashlib import sha256
 from pathlib import Path
 from tempfile import TemporaryDirectory, TemporaryFile
+from threading import Lock
 from typing import Annotated, Literal
 import av
 import psycopg2
@@ -29,6 +30,9 @@ from transcode import inspect_upload, transcode_video
 app = FastAPI()
 MAX_PART_BYTES = 64 * 1024 * 1024
 UPLOAD_IDLE_TTL = 24 * 60 * 60
+VIDEO_RANGES = "video.ranges.json"
+# A Modal Volume can reload only while this container has no open files on it.
+volume_lock = Lock() if os.getenv("MICROTUBE_MODAL_APP") else nullcontext()
 UploadKey = Annotated[str, Header(pattern=r"^[a-f0-9]{32}$")]
 
 def remux_mp4(container, target):
@@ -136,27 +140,87 @@ def staged_upload(owner_hash, key, connection=None):
         # Serialize writes and cleanup for this owner across container restarts.
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                        ("microtube:upload-parts:" + owner,))
+        resources.enter_context(volume_lock)
         reload_media()
         yield directory, cursor
 
 
+def create_staging_directory(directory):
+    if directory.exists():
+        return
+    directory.mkdir(parents=True)
+    deadline = time.time() - UPLOAD_IDLE_TTL
+    for attempt in directory.parent.iterdir():
+        if attempt != directory and attempt.is_dir() and attempt.stat().st_mtime < deadline:
+            shutil.rmtree(attempt)
+
+
 def store_part(owner_hash, key, kind, offset, body, connection=None):
     with staged_upload(owner_hash, key, connection) as (directory, _):
+        if kind == "video" and (directory / VIDEO_RANGES).exists():
+            raise HTTPException(409, "Resume this video with parallel parts")
         path = directory / kind
         stored = path.stat().st_size if path.exists() else 0
         if offset != stored or (directory / "job.json").exists():
             return {"offset": stored}
-        if not directory.exists():
-            directory.mkdir(parents=True)
-            deadline = time.time() - UPLOAD_IDLE_TTL
-            for attempt in directory.parent.iterdir():
-                if attempt != directory and attempt.is_dir() and attempt.stat().st_mtime < deadline:
-                    shutil.rmtree(attempt)
+        create_staging_directory(directory)
         with path.open("ab") as output:
             output.write(body)
         os.utime(directory, None)
         commit_media()
         return {"offset": stored + len(body)}
+
+
+def store_video_range(owner_hash, key, offset, size, body, connection):
+    end = offset + len(body)
+    if end > size:
+        raise HTTPException(409, "Part extends past the declared video size")
+    with staged_upload(owner_hash, key, connection) as (directory, _):
+        if (directory / "job.json").exists():
+            raise HTTPException(409, "Upload is already being processed")
+        index = directory / VIDEO_RANGES
+        video = directory / "video"
+        if index.exists():
+            ranges = json.loads(index.read_text())
+        else:
+            if video.exists():
+                raise HTTPException(409, "Resume this video with sequential parts")
+            create_staging_directory(directory)
+            ranges = {"size": size, "parts": {}}
+            replace_json(index, ranges)
+        if ranges["size"] != size:
+            raise HTTPException(409, "Video size changed during upload")
+        parts = ranges["parts"]
+        previous = parts.get(str(offset))
+        if previous is not None:
+            commit_media()
+            return {"offset": previous}
+        if any(offset < stop and int(start) < end for start, stop in parts.items()):
+            raise HTTPException(409, "Video parts overlap")
+        with video.open("r+b" if video.exists() else "wb") as output:
+            output.seek(offset)
+            output.write(body)
+        parts[str(offset)] = end
+        replace_json(index, ranges)
+        os.utime(directory, None)
+        commit_media()
+        return {"offset": end}
+
+
+def staged_video_complete(directory, size):
+    video = directory / "video"
+    if not video.is_file() or video.stat().st_size != size:
+        return False
+    index = directory / VIDEO_RANGES
+    if not index.exists():
+        return True
+    ranges = json.loads(index.read_text())
+    end = 0
+    for start, stop in sorted((int(start), stop) for start, stop in ranges["parts"].items()):
+        if start != end or stop <= start:
+            return False
+        end = stop
+    return end == size == ranges["size"]
 
 
 async def receive_part(request):
@@ -188,6 +252,26 @@ async def upload_part(
     kind: Literal["video", "thumbnail"],
     token: str | None = Depends(user_token),
 ):
+    return await accept_part(request, token, store_part, idempotency_key, kind, offset)
+
+
+@app.get("/parts")
+def parallel_part_limit():
+    return {"max_part_bytes": MAX_PART_BYTES}
+
+
+@app.post("/parts")
+async def upload_video_range(
+    request: Request,
+    idempotency_key: UploadKey,
+    offset: Annotated[int, Query(ge=0)],
+    size: Annotated[int, Query(gt=0)],
+    token: str | None = Depends(user_token),
+):
+    return await accept_part(request, token, store_video_range, idempotency_key, offset, size)
+
+
+async def accept_part(request, token, store, key, *bounds):
     if token is None:
         require_user(token)
     receiving = asyncio.create_task(receive_part(request))
@@ -196,7 +280,7 @@ async def upload_part(
             body = await receiving
             # A slow request can outlive the cached database tunnel.
             active = connection if time.monotonic() - opened < 30 else None
-            return await run_in_threadpool(store_part, owner_hash, idempotency_key, kind, offset, body, active)
+            return await run_in_threadpool(store, owner_hash, key, *bounds, body, active)
     finally:
         receiving.cancel()
         await asyncio.gather(receiving, return_exceptions=True)
@@ -232,8 +316,10 @@ def run(
     if file is not None:
         media = inspect_upload(file.file)
         if media["mode"] != "transcode":
-            result = store_upload(file, thumbnail, owner_hash, title, description, tags, idempotency_key,
-                                  mode=media["mode"])
+            with volume_lock:
+                reload_media()
+                result = store_upload(file, thumbnail, owner_hash, title, description, tags, idempotency_key,
+                                      mode=media["mode"])
             return queue_playback(background, result)
         filename = file.filename or "video"
         idempotency_key = idempotency_key or secrets.token_hex(16)
@@ -252,7 +338,7 @@ def run(
             video = directory / "video"
             image = directory / "thumbnail"
             if file is None:
-                if not video.is_file() or video.stat().st_size != size:
+                if not staged_video_complete(directory, size):
                     raise HTTPException(409, "Video parts are incomplete. Retry the upload.")
                 if thumbnail_size and (not image.is_file() or image.stat().st_size != thumbnail_size):
                     raise HTTPException(409, "Thumbnail parts are incomplete. Retry the upload.")
@@ -298,10 +384,14 @@ def read_job(directory):
         return None
 
 
+def replace_json(path, data):
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(data))
+    temporary.replace(path)
+
+
 def write_job(directory, job):
-    path = directory / "job.tmp"
-    path.write_text(json.dumps(job))
-    path.replace(directory / "job.json")
+    replace_json(directory / "job.json", job)
     commit_media()
 
 

@@ -127,6 +127,36 @@ class UploadTests(unittest.TestCase):
         body, _ = request(client(), "main", f"/api/video/videos?id={result['id']}")
         self.assertEqual(body, self.clip)
 
+    def test_parallel_parts_are_resumable_and_require_complete_coverage(self):
+        opener = account()
+        key = {"Idempotency-Key": token_hex(16)}
+        size = len(self.clip)
+        split = size // 2
+        first, last = self.clip[:split], self.clip[split:]
+
+        def part(offset, data, status=200, declared_size=size):
+            path = f"/api/upload/parts?offset={offset}&size={declared_size}"
+            body, _ = request(opener, "upload", path, data=data, headers=key, status=status)
+            return json.loads(body)
+
+        def finish(client, status=200):
+            form = urlencode({"title": "Parallel upload", "filename": "parallel.mp4", "size": size})
+            body, _ = request(client, "upload", "/api/upload/upload", data=form.encode(), headers=key, status=status)
+            return json.loads(body)
+
+        self.assertEqual(part(split, last), {"offset": size})
+        finish(opener, status=409)
+        finish(account(), status=409)
+        self.assertEqual(part(split, last[:1]), {"offset": size})
+        part(split - 1, last[:2], status=409)
+        part(0, first, status=409, declared_size=size + 1)
+        request(opener, "upload", "/api/upload/part?kind=video&offset=0", data=first, headers=key, status=409)
+        self.assertEqual(part(0, first), {"offset": split})
+        result = finish(opener)
+        self.assertEqual(finish(opener), result)
+        body, _ = request(client(), "main", f"/api/video/videos?id={result['id']}")
+        self.assertEqual(body, self.clip)
+
     def test_upload_normalizes_quicktime_named_mp4(self):
         clip = make_clip(2, "mov")
         self.assertEqual(clip[4:12], b"ftypqt  ")

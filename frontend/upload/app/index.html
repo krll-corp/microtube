@@ -302,6 +302,104 @@
         }
     }
 
+    async function sendVideo(file, session, progress) {
+        if (file.size <= MAX_PART || session.parallel === false) {
+            return sendParts(file, "video", session, progress);
+        }
+        if (!session.parallel) {
+            try {
+                const {max_part_bytes: limit} = await sendUpload("/api/upload/parts", null, session.key, 20_000);
+                if (!Number.isSafeInteger(limit) || limit < MIN_PART) {
+                    throw new Error("The server returned an invalid part limit.");
+                }
+                session.parallel = {next: 0, partSize: 1024 * 1024, limit: Math.min(limit, MAX_PART), pending: []};
+            } catch (error) {
+                if (error.status !== 404 && error.status !== 405) throw error;
+                session.parallel = false;
+                return sendParts(file, "video", session, progress);
+            }
+        }
+
+        const state = session.parallel;
+        const unfinished = state.pending.slice();
+        let failure;
+        function showProgress() {
+            progress(session.video + state.pending.reduce((sum, range) => sum + range.sent, 0));
+        }
+
+        function nextRange() {
+            if (unfinished.length) return unfinished.shift();
+            if (state.next >= file.size) return null;
+            const end = Math.min(file.size, state.next + Math.min(state.partSize, state.limit));
+            const range = {offset: state.next, end, sent: 0};
+            state.next = end;
+            state.pending.push(range);
+            return range;
+        }
+
+        async function sendRange(range) {
+            let retries = 0;
+            let partSize = state.partSize;
+            while (range.offset < range.end && !failure) {
+                const offset = range.offset;
+                const part = file.slice(offset, Math.min(range.end, offset + Math.min(partSize, state.limit)));
+                const started = performance.now();
+                let sent = 0;
+                try {
+                    progressText.textContent = "Transferring file";
+                    const {offset: stored} = await sendUpload(
+                        `/api/upload/parts?offset=${offset}&size=${file.size}`, part, session.key, 90_000,
+                        loaded => {
+                            sent = Math.min(part.size, loaded);
+                            range.sent = sent;
+                            showProgress();
+                        }
+                    );
+                    if (!Number.isSafeInteger(stored) || stored <= offset || stored > range.end) {
+                        throw new Error("The server returned an invalid part position.");
+                    }
+                    session.video += stored - offset;
+                    range.offset = stored;
+                    retries = 0;
+                    const elapsed = Math.max(1, performance.now() - started);
+                    state.partSize = Math.min(state.limit, Math.max(MIN_PART, Math.floor(part.size * 20_000 / elapsed)));
+                    partSize = state.partSize;
+                } catch (error) {
+                    if (error.status === 413 && part.size > MIN_PART) {
+                        state.limit = Math.min(state.limit, Math.max(MIN_PART, Math.floor(part.size / 2)));
+                        partSize = state.limit;
+                        continue;
+                    }
+                    if (!error.retryable || ++retries > 3) throw error;
+                    progressText.textContent = "Retrying interrupted transfer";
+                    partSize = Math.max(MIN_PART, Math.floor((sent || part.size) / 2));
+                    range.sent = 0;
+                    showProgress();
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                } finally {
+                    range.sent = 0;
+                    showProgress();
+                }
+            }
+            if (range.offset === range.end) state.pending.splice(state.pending.indexOf(range), 1);
+        }
+
+        async function worker() {
+            while (!failure) {
+                const range = nextRange();
+                if (!range) return;
+                try {
+                    await sendRange(range);
+                } catch (error) {
+                    failure ??= error;
+                }
+            }
+        }
+
+        await Promise.all([worker(), worker()]);
+        if (failure) throw failure;
+    }
+
     form.addEventListener("submit", async event => {
         event.preventDefault();
         if (submitButton.disabled) return;
@@ -345,7 +443,7 @@
 
         try {
             progress(session.video + session.thumbnail);
-            await sendParts(file, "video", session, progress);
+            await sendVideo(file, session, progress);
             if (thumbnailSize) await sendParts(thumbnail, "thumbnail", session, loaded => progress(file.size + loaded));
 
             progress(total);
@@ -370,7 +468,10 @@
             link.className = "watch-link";
             feedback.append(document.createElement("br"), link);
         } catch (error) {
-            if (error.status === 409) session.video = session.thumbnail = 0;
+            if (error.status === 409) {
+                session.video = session.thumbnail = 0;
+                if (session.parallel && upload === session) upload = null;
+            }
             showMessage(error.message);
         } finally {
             submitButton.disabled = false;
