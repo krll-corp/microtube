@@ -174,7 +174,7 @@
         if (Hls?.isSupported()) {
             const hls = new Hls({
                 startLevel: 0, capLevelToPlayerSize: true, lowLatencyMode: false,
-                maxBufferLength: 20, maxMaxBufferLength: 40, backBufferLength: 15,
+                maxBufferLength: 60, maxMaxBufferLength: 120, backBufferLength: 15,
             });
             releasePlayer = () => hls.destroy();
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
