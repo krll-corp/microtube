@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -12,11 +13,12 @@ from typing import Annotated, Literal
 import av
 import psycopg2
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi.concurrency import contextmanager_in_threadpool
 from fastapi.responses import JSONResponse
 from psycopg2.extras import Json
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
-from microtube_auth import require_user
+from microtube_auth import require_user, user_token
 from microtube_media import encode_thumbnail, first_video_frame, video_duration_seconds, video_stream
 from microtube_storage import VIDEO_STORAGE_DIR, find_video, save_thumbnail, save_video, thumbnail_path, video_path
 from microtube_tags import get_tag_ids
@@ -25,7 +27,7 @@ from playback import prepare_playback
 from transcode import inspect_upload, transcode_video
 
 app = FastAPI()
-MAX_PART_BYTES = 8 * 1024 * 1024
+MAX_PART_BYTES = 64 * 1024 * 1024
 UPLOAD_IDLE_TTL = 24 * 60 * 60
 UploadKey = Annotated[str, Header(pattern=r"^[a-f0-9]{32}$")]
 
@@ -123,10 +125,14 @@ def previous_upload(cursor, owner_hash, key, *, lock=True):
 
 
 @contextmanager
-def staged_upload(owner_hash, key):
+def staged_upload(owner_hash, key, connection=None):
     owner = sha256(owner_hash.encode()).hexdigest()
     directory = VIDEO_STORAGE_DIR / ".uploads" / owner / key
-    with closing(connect()) as connection, connection, connection.cursor() as cursor:
+    with ExitStack() as resources:
+        if connection is None:
+            connection = resources.enter_context(closing(connect()))
+        resources.enter_context(connection)
+        cursor = resources.enter_context(connection.cursor())
         # Serialize writes and cleanup for this owner across container restarts.
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                        ("microtube:upload-parts:" + owner,))
@@ -134,8 +140,8 @@ def staged_upload(owner_hash, key):
         yield directory, cursor
 
 
-def store_part(owner_hash, key, kind, offset, body):
-    with staged_upload(owner_hash, key) as (directory, _):
+def store_part(owner_hash, key, kind, offset, body, connection=None):
+    with staged_upload(owner_hash, key, connection) as (directory, _):
         path = directory / kind
         stored = path.stat().st_size if path.exists() else 0
         if offset != stored or (directory / "job.json").exists():
@@ -153,25 +159,47 @@ def store_part(owner_hash, key, kind, offset, body):
         return {"offset": stored + len(body)}
 
 
+async def receive_part(request):
+    body = bytearray()
+    try:
+        async for chunk in request.stream():
+            if len(body) + len(chunk) > MAX_PART_BYTES:
+                raise HTTPException(413, f"Upload part exceeds {MAX_PART_BYTES // (1024 * 1024)} MiB")
+            body.extend(chunk)
+    except ClientDisconnect as error:
+        raise HTTPException(408, "Upload part was interrupted") from error
+    if not body:
+        raise HTTPException(400, "Upload part is empty")
+    return body
+
+
+@contextmanager
+def prepare_part(token):
+    owner_hash = require_user(token)
+    with closing(connect()) as connection:
+        yield owner_hash, connection, time.monotonic()
+
+
 @app.post("/part")
 async def upload_part(
     request: Request,
     idempotency_key: UploadKey,
     offset: Annotated[int, Query(ge=0)],
     kind: Literal["video", "thumbnail"],
-    owner_hash: str = Depends(require_user),
+    token: str | None = Depends(user_token),
 ):
-    body = bytearray()
+    if token is None:
+        require_user(token)
+    receiving = asyncio.create_task(receive_part(request))
     try:
-        async for chunk in request.stream():
-            if len(body) + len(chunk) > MAX_PART_BYTES:
-                raise HTTPException(413, "Upload part exceeds 8 MiB")
-            body.extend(chunk)
-    except ClientDisconnect as error:
-        raise HTTPException(408, "Upload part was interrupted") from error
-    if not body:
-        raise HTTPException(400, "Upload part is empty")
-    return await run_in_threadpool(store_part, owner_hash, idempotency_key, kind, offset, body)
+        async with contextmanager_in_threadpool(prepare_part(token)) as (owner_hash, connection, opened):
+            body = await receiving
+            # A slow request can outlive the cached database tunnel.
+            active = connection if time.monotonic() - opened < 30 else None
+            return await run_in_threadpool(store_part, owner_hash, idempotency_key, kind, offset, body, active)
+    finally:
+        receiving.cancel()
+        await asyncio.gather(receiving, return_exceptions=True)
 
 
 def queue_playback(background, result):
@@ -199,6 +227,7 @@ def run(
     filename: str = Form(""),
     size: int | None = Form(None, gt=0),
     thumbnail_size: int = Form(0, ge=0),
+    defer_processing: bool = Form(False),
 ):
     if file is not None:
         media = inspect_upload(file.file)
@@ -228,8 +257,11 @@ def run(
                 if thumbnail_size and (not image.is_file() or image.stat().st_size != thumbnail_size):
                     raise HTTPException(409, "Thumbnail parts are incomplete. Retry the upload.")
                 has_thumbnail = bool(thumbnail_size)
-                with video.open("rb") as source:
-                    media = inspect_upload(source)
+                if defer_processing:
+                    media = {"mode": None, "duration": None}
+                else:
+                    with video.open("rb") as source:
+                        media = inspect_upload(source)
             else:
                 directory.mkdir(parents=True, exist_ok=True)
                 with video.open("wb") as output:
@@ -345,6 +377,9 @@ def process_upload(owner_hash, key, after_publish=None):
                 write_job(directory, job)
 
             try:
+                if job["mode"] is None:
+                    with (directory / "video").open("rb") as source:
+                        job.update(inspect_upload(source))
                 if job["mode"] == "transcode":
                     update(0 if job["duration"] else None)
                     with TemporaryDirectory() as work:

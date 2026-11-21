@@ -1,9 +1,13 @@
 import json
 import unittest
 from secrets import token_hex
+from struct import pack
+from time import monotonic, sleep
+from urllib.error import HTTPError
 from urllib.parse import urlencode
+from urllib.request import Request
 
-from support import account, client, make_clip, request, upload
+from support import account, address, client, make_clip, request, upload
 
 
 class AuthTests(unittest.TestCase):
@@ -133,3 +137,35 @@ class UploadTests(unittest.TestCase):
                                 headers={"Range": "bytes=0-11"}, status=206)
         self.assertEqual(headers.get_content_type(), "video/mp4")
         self.assertEqual(body[4:12], b"ftypisom")
+
+    def test_deferred_upload_accepts_bytes_before_checking_the_format(self):
+        opener = account()
+        padding = bytes(9 * 1024 * 1024)
+        valid = self.clip + pack(">I4s", len(padding) + 8, b"free") + padding
+        for data, expected in ((valid, 200), (b"unreadable video", 415)):
+            with self.subTest(expected=expected):
+                key = {"Idempotency-Key": token_hex(16)}
+                body, _ = request(opener, "upload", "/api/upload/part?kind=video&offset=0",
+                                  data=data, headers=key)
+                self.assertEqual(json.loads(body)["offset"], len(data))
+                form = urlencode({"title": "Deferred upload", "defer_processing": "true",
+                                  "filename": "video.mp4", "size": len(data)}).encode()
+                body, _ = request(opener, "upload", "/api/upload/upload", data=form, headers=key, status=202)
+                self.assertTrue(json.loads(body)["processing"])
+                poll = Request(address("upload") + "/api/upload/status", headers=key)
+                deadline = monotonic() + 20
+                while True:
+                    try:
+                        response = opener.open(poll, timeout=5)
+                    except HTTPError as error:
+                        response = error
+                    with response:
+                        status = response.status
+                        result = json.load(response)
+                    if status != 202 or monotonic() >= deadline:
+                        break
+                    sleep(0.1)
+                self.assertEqual(status, expected)
+                if status == 200:
+                    body, _ = request(client(), "main", f"/api/video/videos?id={result['id']}")
+                    self.assertEqual(body, data)

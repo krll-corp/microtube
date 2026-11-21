@@ -93,7 +93,7 @@
     const transcodeBar = document.getElementById("transcode-bar");
     const transcodeText = document.getElementById("transcode-text");
     const transcodePercent = document.getElementById("transcode-percent");
-    const MAX_PART = 8 * 1024 * 1024;
+    const MAX_PART = 64 * 1024 * 1024;
     const MIN_PART = 16 * 1024;
 
     let previewUrl = null;
@@ -264,6 +264,7 @@
 
     async function sendParts(file, kind, session, progress) {
         let partSize = 1024 * 1024;
+        let partLimit = MAX_PART;
         let retries = 0;
         while (session[kind] < file.size) {
             const offset = session[kind];
@@ -284,8 +285,14 @@
                 if (stored > offset) retries = 0;
                 else if (++retries > 3) throw new Error("Upload lost progress. Click Upload video to resume.");
                 const elapsed = Math.max(1, performance.now() - started);
-                partSize = Math.min(MAX_PART, Math.max(MIN_PART, Math.floor(part.size * 20_000 / elapsed)));
+                partSize = Math.min(partLimit, Math.max(MIN_PART, Math.floor(part.size * 20_000 / elapsed)));
             } catch (error) {
+                if (error.status === 413 && part.size > MIN_PART) {
+                    partLimit = Math.max(MIN_PART, Math.floor(part.size / 2));
+                    partSize = partLimit;
+                    progress(offset);
+                    continue;
+                }
                 if (!error.retryable || ++retries > 3) throw error;
                 progress(offset);
                 progressText.textContent = "Retrying interrupted transfer";
@@ -323,6 +330,7 @@
         formData.set("filename", file.name);
         formData.set("size", String(file.size));
         formData.set("thumbnail_size", String(thumbnailSize));
+        if (file.size >= MAX_PART) formData.set("defer_processing", "true");
 
         submitButton.textContent = "Uploading...";
         progressWrap.hidden = false;
