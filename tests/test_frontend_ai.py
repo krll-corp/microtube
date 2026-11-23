@@ -79,7 +79,7 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
             on_permission_request=lambda req, inv: PermissionDecisionReject(),
         )
 
-    async def ask(self, session, prompt, *shots, timeout=60):
+    async def ask(self, session, prompt, *shots, timeout=120):
         attachments = [
             {"type": "blob", "data": b64encode(shot.read_bytes()).decode(),
              "mimeType": "image/png", "displayName": shot.name}
@@ -131,7 +131,7 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
         evidence = f"# {self.case}\n\nActions\n\n{trace}\n\nScreenshots\n\n{frames}\n"
         report.write_text(evidence + "\nThe visual review did not complete. See the workflow log.\n", encoding="utf-8")
         # Reasoning tokens count toward the reviewer's completion budget.
-        async with await self.new_session(max_output_tokens=8192) as reviewer:
+        async with await self.new_session(max_output_tokens=32768) as reviewer:
             notes = await self.ask(
                 reviewer,
                 f"Review the MicroTube {self.case} flow for UI and UX issues. The attached screenshots are listed "
