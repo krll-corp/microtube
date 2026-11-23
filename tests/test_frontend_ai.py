@@ -71,7 +71,8 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
             target += "?" + url.query
         await route.fulfill(status=302, headers={"Location": target})
 
-    async def new_session(self, max_output_tokens=600):
+    async def new_session(self, max_output_tokens=32768):
+        # Reasoning tokens share the completion budget with the action label.
         return await self.copilot.create_session(
             model=self.model, provider={**self.provider, "max_output_tokens": max_output_tokens},
             available_tools=[],
@@ -85,11 +86,12 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
              "mimeType": "image/png", "displayName": shot.name}
             for shot in shots
         ]
-        reply = await session.send_and_wait(prompt, attachments=attachments, timeout=timeout)
-        answer = (getattr(reply.data, "content", None) or "").strip() if reply else ""
-        if not answer:
-            self.fail("The BYOK model returned no text")
-        return answer
+        for _ in range(2):
+            reply = await session.send_and_wait(prompt, attachments=attachments, timeout=timeout)
+            answer = (getattr(reply.data, "content", None) or "").strip() if reply else ""
+            if answer:
+                return answer
+        self.fail("The BYOK model returned no text on both attempts")
 
     async def screenshot(self, checkpoint=None):
         suffix = checkpoint or ("initial" if not self.shots else "after")
