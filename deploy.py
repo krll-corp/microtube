@@ -49,7 +49,7 @@ pg_image = modal.Image.from_registry("pgvector/pgvector:pg16", add_python="3.13"
     ROOT / "db", "/app/db", copy=True,
 )
 cpu = dict(image=image, secrets=[credentials], cpu=0.125, memory=256,
-           min_containers=1, max_containers=4, scaledown_window=600, timeout=3600)
+           min_containers=0, max_containers=4, scaledown_window=600, timeout=3600)
 upload_worker = {**cpu, "image": upload_worker_image, "cpu": 2, "memory": 4096,
                  "max_containers": 1, "timeout": 86400, "scaledown_window": 60}
 gpu = dict(image=gpu_image, secrets=[credentials], gpu=os.getenv("MICROTUBE_GPU", "T4"),
